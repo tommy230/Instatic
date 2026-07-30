@@ -20,6 +20,7 @@ import { useRuntimeScriptBuild } from '@site/canvas/useRuntimeScriptBuild'
 import { useEditorStore } from '@site/store/store'
 import { normalizeSiteRuntimeConfig } from '@core/site-runtime'
 import type { Page } from '@core/page-tree'
+import type { SiteFile } from '@core/files/schemas'
 import { makeNode, makePage, makeSite } from '../fixtures'
 
 afterEach(cleanup)
@@ -202,6 +203,51 @@ function ScriptBuildHarness({ page, enabled }: { page: Page; enabled: boolean })
   )
 }
 
+/**
+ * Swap the store's site files for equivalents whose `content` is an accessor,
+ * so tests can count how often the hook actually touches file contents. On a
+ * real store that field holds tens of MB across ~19k files, so "how many times
+ * is it read" is the mechanical form of the performance contract.
+ */
+function instrumentFileContentReads(): { reads: number } {
+  const counter = { reads: 0 }
+  const current = useEditorStore.getState().site!
+  const files = current.files.map((file) => {
+    const { content, ...rest } = file
+    return Object.defineProperty(rest, 'content', {
+      get() {
+        counter.reads += 1
+        return content
+      },
+      enumerable: true,
+      configurable: true,
+    }) as SiteFile
+  })
+  useEditorStore.setState({
+    site: { ...current, files },
+  } as Parameters<typeof useEditorStore.setState>[0])
+  return counter
+}
+
+/** Touch a node prop — the edit shape that must NOT re-run the script bundle. */
+function editNodeTree(padding: string): void {
+  act(() => {
+    const current = useEditorStore.getState().site!
+    const nextPages = current.pages.map((p) =>
+      p.id !== 'page-1' ? p : {
+        ...p,
+        nodes: {
+          ...p.nodes,
+          root: { ...p.nodes.root, props: { ...p.nodes.root.props, padding } },
+        },
+      },
+    )
+    useEditorStore.setState({
+      site: { ...current, pages: nextPages, updatedAt: Date.now() },
+    } as Parameters<typeof useEditorStore.setState>[0])
+  })
+}
+
 describe('useRuntimeScriptBuild', () => {
   let buildCalls = 0
   beforeEach(() => {
@@ -248,21 +294,7 @@ describe('useRuntimeScriptBuild', () => {
     await flushBuildQueue()
     expect(buildCalls).toBe(1)
 
-    act(() => {
-      const current = useEditorStore.getState().site!
-      const nextPages = current.pages.map((p) =>
-        p.id !== 'page-1' ? p : {
-          ...p,
-          nodes: {
-            ...p.nodes,
-            root: { ...p.nodes.root, props: { ...p.nodes.root.props, padding: '16px' } },
-          },
-        },
-      )
-      useEditorStore.setState({
-        site: { ...current, pages: nextPages, updatedAt: Date.now() },
-      } as Parameters<typeof useEditorStore.setState>[0])
-    })
+    editNodeTree('16px')
     await flushBuildQueue()
 
     expect(buildCalls).toBe(1)
@@ -308,6 +340,38 @@ describe('useRuntimeScriptBuild', () => {
     await flushBuildQueue()
 
     expect(buildCalls).toBe(2)
+  })
+
+  it('never reads file contents while the toggle is off', async () => {
+    const { page } = withRuntimeSite()
+    const counter = instrumentFileContentReads()
+
+    const { rerender } = render(<ScriptBuildHarness page={page} enabled={false} />)
+    await flushBuildQueue()
+    for (let i = 0; i < 5; i += 1) rerender(<ScriptBuildHarness page={page} enabled={false} />)
+    await flushBuildQueue()
+
+    expect(counter.reads).toBe(0)
+    expect(buildCalls).toBe(0)
+  })
+
+  it('does not re-read file contents on renders that leave site.files alone', async () => {
+    const { page } = withRuntimeSite()
+    const counter = instrumentFileContentReads()
+
+    const { rerender } = render(<ScriptBuildHarness page={page} enabled />)
+    await flushBuildQueue()
+    const afterFirstBuild = counter.reads
+    expect(afterFirstBuild).toBeGreaterThan(0)
+
+    for (let i = 0; i < 5; i += 1) {
+      editNodeTree(`${i}px`)
+      rerender(<ScriptBuildHarness page={page} enabled />)
+    }
+    await flushBuildQueue()
+
+    expect(counter.reads).toBe(afterFirstBuild)
+    expect(buildCalls).toBe(1)
   })
 
   it('rebuilds on Refresh even when nothing else changed', async () => {
