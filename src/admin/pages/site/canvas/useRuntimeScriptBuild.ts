@@ -18,14 +18,19 @@
  *   does NOT rebuild on ordinary node-tree edits: those don't touch the script
  *   inputs, so the bundle signature stays stable and scripts are not re-run on
  *   every keystroke.
+ * - The signature is derived from a cheap structural digest of `site.files`
+ *   (see `digestSiteFiles`), memoized on the files reference, never from the
+ *   file contents themselves — a real store carries tens of MB of content and
+ *   serializing it per render is not affordable.
  * - Also rebuilds on an explicit Refresh (the user's escape hatch for when a
  *   React reconcile clobbered script-mutated DOM).
  *
  * The 350ms debounce coalesces rapid edits (e.g. agent tool batches).
  */
 
-import { useEffect, useEffectEvent, useState } from 'react'
-import type { Page, SiteDocument } from '@core/page-tree'
+import { useEffect, useEffectEvent, useMemo, useState } from 'react'
+import type { Page } from '@core/page-tree'
+import type { SiteFile } from '@core/files/schemas'
 import type { TemplateRenderDataContext } from '@core/templates/dynamicBindings'
 import { useEditorStore } from '@site/store/store'
 import {
@@ -97,25 +102,67 @@ function extractInjectableScripts(result: CmsRuntimePreviewResult): InjectableRu
     .filter((entry): entry is InjectableRuntimeScript => entry !== null)
 }
 
-function computeBuildSignature(
-  site: SiteDocument | null,
-  pageId: string | null,
-  breakpointId: string,
-  templateContext: TemplateRenderDataContext | undefined,
-): string | null {
-  if (!site || !pageId) return null
-  // Key on the bundle's actual inputs (script files, runtime config, deps)
-  // rather than `site.updatedAt`, so editing the node tree — which leaves
-  // these untouched — does NOT re-run scripts. Editing a script file or a
-  // dependency rotates the signature and triggers a fresh bundle.
-  return JSON.stringify({
-    files: site.files,
-    runtime: site.runtime ?? null,
-    packageJson: site.packageJson ?? null,
-    pageId,
-    breakpointId,
-    templateContext: templateContext ?? null,
-  })
+/**
+ * How many characters are sampled out of each file's `content` when digesting.
+ * Evenly spaced across the string, so a same-length edit almost always moves at
+ * least one sample. Constant work per file regardless of content size.
+ */
+const CONTENT_SAMPLE_POINTS = 16
+
+/**
+ * Cheap structural digest of `site.files`.
+ *
+ * Serializing the files array itself is not viable: the largest real store
+ * (18,905 files / 32.3 MB of content) turns every digest into a 32 MB
+ * `JSON.stringify`. `SiteFile` carries no content hash or version field — the
+ * available fields are `id`, `path`, `type`, `content`, `blob`, `generated`,
+ * `ejected`, `createdAt` and `updatedAt` — so we fold the cheap identifying
+ * ones plus `updatedAt` (stamped by every `filesSlice` write boundary), the
+ * payload lengths, and a bounded content sample into a 64-bit FNV-1a-style
+ * pair. That is O(files) with constant work per file instead of O(bytes).
+ *
+ * The residual gap versus a full content digest is a content edit that keeps
+ * the same byte length, lands in the same millisecond as the previous one, and
+ * misses every sample point. Callers get a skipped rebuild in that case, which
+ * the Refresh button already exists to recover from.
+ */
+function digestSiteFiles(files: readonly SiteFile[]): string {
+  let hashA = 0x811c9dc5
+  let hashB = 0x9e3779b9
+
+  const mix = (value: number): void => {
+    hashA = Math.imul(hashA ^ value, 0x01000193)
+    hashB = Math.imul(hashB + value + 0x9e3779b9, 0x85ebca6b)
+  }
+
+  const mixText = (text: string): void => {
+    for (let i = 0; i < text.length; i += 1) mix(text.charCodeAt(i))
+    mix(text.length)
+  }
+
+  const mixSampled = (text: string | undefined): void => {
+    if (text === undefined) {
+      mix(-1)
+      return
+    }
+    mix(text.length)
+    const stride = Math.max(1, Math.ceil(text.length / CONTENT_SAMPLE_POINTS))
+    for (let i = 0; i < text.length; i += stride) mix(text.charCodeAt(i))
+  }
+
+  for (const file of files) {
+    mixText(file.id)
+    mixText(file.path)
+    mixText(file.type)
+    mix(file.updatedAt)
+    mix(file.generated ? 1 : 0)
+    mix(file.ejected ? 1 : 0)
+    mixSampled(file.content)
+    mixSampled(file.blob?.base64)
+  }
+  mix(files.length)
+
+  return `${(hashA >>> 0).toString(16)}-${(hashB >>> 0).toString(16)}-${files.length}`
 }
 
 export function useRuntimeScriptBuild({
@@ -129,12 +176,41 @@ export function useRuntimeScriptBuild({
   const [build, setBuild] = useState<BuildResult | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
 
-  const buildSignature = computeBuildSignature(
-    site,
-    page?.id ?? null,
-    breakpointId,
-    templateContext,
+  // Pull the signature inputs out of `site` so each memo below depends on the
+  // narrow slice it actually reads. Mutative's structural sharing means these
+  // references only rotate when that part of the document is written, so a
+  // node-tree edit leaves `files` / `runtime` / `packageJson` untouched.
+  const files = site?.files ?? null
+  const runtime = site?.runtime ?? null
+  const packageJson = site?.packageJson ?? null
+  const pageId = page?.id ?? null
+
+  // Stage 1 — the expensive half, keyed only on the `files` reference, so it
+  // runs when a file is actually written rather than on every CanvasRoot
+  // render. Short-circuits to `null` while the toggle is off: a disabled
+  // "Run scripts" toggle does zero digest work.
+  const filesDigest = useMemo(
+    () => (enabled && files ? digestSiteFiles(files) : null),
+    [enabled, files],
   )
+
+  // Stage 2 — key on the bundle's actual inputs (script files, runtime config,
+  // deps) rather than `site.updatedAt`, so editing the node tree — which leaves
+  // these untouched — does NOT re-run scripts. Editing a script file or a
+  // dependency rotates the digest (and therefore the signature) and triggers a
+  // fresh bundle. Everything stringified here is small; the files array is
+  // represented by its digest.
+  const buildSignature = useMemo(() => {
+    if (filesDigest === null || pageId === null) return null
+    return JSON.stringify({
+      files: filesDigest,
+      runtime: runtime ?? null,
+      packageJson: packageJson ?? null,
+      pageId,
+      breakpointId,
+      templateContext: templateContext ?? null,
+    })
+  }, [filesDigest, runtime, packageJson, pageId, breakpointId, templateContext])
 
   const isIdle = !enabled || !site || !page || buildSignature === null
 
