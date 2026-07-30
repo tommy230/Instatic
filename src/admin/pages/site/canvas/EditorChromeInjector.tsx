@@ -156,6 +156,63 @@ function buildTokenBlock(parentDoc: Document): string {
  *
  * Module-scope constant: stable across renders, not captured into closures.
  */
+/**
+ * Reveal content that an imported scroll-animation library hides until its own
+ * JavaScript runs.
+ *
+ * The pattern is the same in every one of these plugins: ship the element at
+ * `opacity: 0` (usually with a translate offset), then add a reveal class from
+ * a scroll observer once it enters the viewport. The published page runs that
+ * script, so it looks right. The canvas defaults to not running page scripts,
+ * so the reveal class never arrives and the author sees blank bands where their
+ * content should be — a faithfully imported page that is impossible to edit.
+ *
+ * Every selector here is gated on `:not(<reveal class>)`, so the rule disables
+ * itself the moment the real script does its job. With "Run scripts" on, the
+ * library adds the class, these rules stop matching, and the authored animation
+ * plays normally.
+ *
+ * This is deliberately editor chrome and NOT an import-time rewrite of
+ * `site.styleRules`. Those rules feed the canvas and the publisher through the
+ * same generator (`generateClassCSS`), so neutralising them at import would
+ * change the published site's animations to fix an editor display problem. The
+ * published output must keep hiding these elements — that is what the author
+ * chose when they picked the theme.
+ *
+ * Scoped to known plugin families on purpose. A generic "override any
+ * `opacity: 0`" rule would also unhide legitimately hidden UI — fancybox
+ * overlays, closed dropdowns, inactive modals and tab panels — which is a worse
+ * editing experience than the bug it fixes.
+ */
+const SCROLL_REVEAL_CHROME_RULES = `
+/* CSS3 Animate It — .animatedParent > .animated <name>, revealed by .go */
+.animated:not(.go) {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+/* AOS — [data-aos="fade-up"] and friends, revealed by .aos-animate */
+[data-aos]:not(.aos-animate) {
+  opacity: 1;
+  transform: none;
+  transition: none;
+}
+
+/* WPBakery / Visual Composer — revealed by .wpb_start_animation */
+.wpb_animate_when_almost_visible:not(.wpb_start_animation) {
+  opacity: 1;
+  transform: none;
+}
+
+/* Elementor — the wrapper is unhidden by removing .elementor-invisible */
+.elementor-invisible {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+`.trim()
+
 const CHROME_RULES = `
 /* ── CanvasModulePlaceholder ───────────────────────────────────────────────
  * Reproduced from CanvasModulePlaceholder.module.css using stable
@@ -420,6 +477,10 @@ const CHROME_RULES = `
   text-transform: none;
   white-space: normal;
 }
+
+/* ── Imported scroll-animation reveal ─────────────────────────────────────── */
+
+${SCROLL_REVEAL_CHROME_RULES}
 `.trim()
 
 export function EditorChromeInjector({ targetDocument, parentDocument }: EditorChromeInjectorProps) {
