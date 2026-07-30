@@ -33,9 +33,30 @@ import {
   parseVirtualVCPageId,
 } from '@core/visualComponents'
 import type { Page, SiteDocument, SiteShell } from '@core/page-tree'
-import { badRequest, jsonResponse, methodNotAllowed, readValidatedBody } from '../../http'
+import {
+  badRequest,
+  jsonResponse,
+  methodNotAllowed,
+  payloadTooLarge,
+  readValidatedBody,
+  RequestBodyTooLargeError,
+} from '../../http'
 import { Type } from '@core/utils/typeboxHelpers'
 import { getErrorMessage } from '@core/utils/errorMessage'
+
+/**
+ * Preview posts the editor's whole in-memory `SiteDocument`, so the ceiling has
+ * to clear the largest legitimate store rather than a typical one.
+ *
+ * Measured basis: the Carmel Baptist store carries 18,905 entries in
+ * `site.files` holding 32.3 MB of content. Re-serializing that census as a
+ * preview request body (markup-shaped content, so JSON escaping is exercised)
+ * lands at 39.1 MB — the escaping and per-file metadata add ~21% over the raw
+ * content. 128 MB leaves ~3.3x headroom over that measurement, which absorbs
+ * both further growth of that store and the pages/VCs a real document also
+ * carries, while still bounding what a single request can make us buffer.
+ */
+const MAX_RUNTIME_PREVIEW_BYTES = 128 * 1024 * 1024
 
 function runtimeDependencyMap(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
@@ -148,7 +169,17 @@ export async function handleRuntimeRoutes(req: Request, db: DbClient): Promise<R
       templateContext: Type.Optional(Type.Unknown()),
       site: Type.Record(Type.String(), Type.Unknown()),
     })
-    const body = await readValidatedBody(req, RuntimePreviewBodySchema)
+    let body: Awaited<ReturnType<typeof readValidatedBody<typeof RuntimePreviewBodySchema>>>
+    try {
+      body = await readValidatedBody(req, RuntimePreviewBodySchema, {
+        maxBytes: MAX_RUNTIME_PREVIEW_BYTES,
+      })
+    } catch (err) {
+      if (err instanceof RequestBodyTooLargeError) {
+        return payloadTooLarge('Runtime preview payload is too large.')
+      }
+      throw err
+    }
     if (!body) return badRequest('Invalid request body')
     const pageId = body.pageId.trim()
     const breakpointId = body.breakpointId?.trim() || undefined

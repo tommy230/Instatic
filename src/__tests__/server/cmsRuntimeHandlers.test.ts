@@ -68,7 +68,19 @@ function makeFakeDb(): DbClient {
   return handle as DbClient
 }
 
-function runtimeRequest(url: string, body: unknown): Request {
+/**
+ * Hand-rolled `Request` stand-in — happy-dom's global `Request` (installed by
+ * the test setup) strips the `cookie` header, so a real one can't carry a
+ * session. Carries a body stream as well as `json()` because the preview
+ * endpoint reads through the size-limited streaming reader.
+ *
+ * `contentLengthOverride` lets a test declare an oversized body without
+ * materializing one: the reader rejects on the declared `content-length`
+ * before pulling a byte.
+ */
+function runtimeRequest(url: string, body: unknown, contentLengthOverride?: number): Request {
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  const contentLength = String(contentLengthOverride ?? bytes.byteLength)
   return {
     method: 'POST',
     url,
@@ -76,9 +88,16 @@ function runtimeRequest(url: string, body: unknown): Request {
       get: (name: string) => {
         if (name.toLowerCase() === 'cookie') return `${SESSION_COOKIE_NAME}=session-token`
         if (name.toLowerCase() === 'content-type') return 'application/json'
+        if (name.toLowerCase() === 'content-length') return contentLength
         return null
       },
     },
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes)
+        controller.close()
+      },
+    }),
     json: async () => body,
   } as unknown as Request
 }
@@ -288,6 +307,19 @@ describe('CMS runtime handlers', () => {
     await expect(res.json()).resolves.toMatchObject({
       html: expect.stringContaining('<!DOCTYPE html>'),
       diagnostics: [],
+    })
+  })
+
+  it('rejects a runtime preview body past the size ceiling with 413', async () => {
+    const res = await handleCmsRequest(runtimeRequest(
+      'http://localhost/admin/api/cms/runtime/preview',
+      { site: site(), pageId: 'page_1' },
+      256 * 1024 * 1024,
+    ), makeFakeDb())
+
+    expect(res.status).toBe(413)
+    await expect(res.json()).resolves.toMatchObject({
+      error: 'Runtime preview payload is too large.',
     })
   })
 
