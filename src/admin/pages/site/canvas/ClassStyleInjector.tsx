@@ -23,9 +23,15 @@
  * - No FOUC: the style element is created synchronously before first paint.
  *
  * Security (Constraint #228):
- * - Property names are validated against an allowlist (camelCase CSS properties).
  * - Values are sanitised via the canonical sanitiseCssValue() from publisher/utils.
- * - Only known CSS property names from CSSPropertyBag interface are emitted.
+ * - Property names are filtered by `isEmittableProperty` in publisher/classCss —
+ *   a DENYLIST (`behavior`, `-moz-binding`, `-ms-behavior`), not an allowlist.
+ *   Imported stylesheets carry thousands of properties no hand-authored
+ *   allowlist would cover, so emission is permissive and the safety boundary is
+ *   the value sanitiser plus the structural guards in `sanitizeRawKeyframesCss`
+ *   and `isSafeConditionText`. This comment previously claimed a
+ *   CSSPropertyBag-derived allowlist gated emission; it does not, and that
+ *   description has already misdirected one debugging session.
  *
  * Performance:
  * - Subscribes with granular selectors so re-renders only happen when the

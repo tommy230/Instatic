@@ -59,3 +59,51 @@ describe('EditorChromeInjector font isolation', () => {
     expect(css).not.toContain('var(--space-xl)')
   })
 })
+
+/**
+ * Imported WordPress themes routinely hide content at `opacity: 0` and reveal
+ * it from a scroll observer. With page scripts off — the canvas default — the
+ * reveal class never arrives and the author edits a blank band. Fleet-wide this
+ * affects 6 stores via CSS3 Animate It and 3 via AOS.
+ */
+describe('EditorChromeInjector scroll-reveal neutralisation', () => {
+  function chromeCss(): string {
+    const target = document.implementation.createHTMLDocument('iframe')
+    render(<EditorChromeInjector targetDocument={target} parentDocument={makeParentDoc()} />)
+    return target.getElementById('instatic-editor-chrome')?.textContent ?? ''
+  }
+
+  it('reveals the hidden base state of each known scroll-animation family', () => {
+    const css = chromeCss()
+    expect(css).toContain('.animated:not(.go)')
+    expect(css).toContain('[data-aos]:not(.aos-animate)')
+    expect(css).toContain('.wpb_animate_when_almost_visible:not(.wpb_start_animation)')
+    expect(css).toContain('.elementor-invisible')
+  })
+
+  it('gates every reveal on the absence of the library reveal class, so the rule disables itself once the script runs', () => {
+    const css = chromeCss()
+    const section = css.slice(css.indexOf('Imported scroll-animation reveal'))
+    const selectors = section
+      .split('\n')
+      .filter((line) => line.trim().endsWith('{'))
+      .map((line) => line.trim())
+
+    expect(selectors.length).toBeGreaterThan(0)
+    for (const selector of selectors) {
+      // `.elementor-invisible` is itself the reveal gate — the library removes
+      // the class rather than adding one, so it needs no `:not()`.
+      if (selector.startsWith('.elementor-invisible')) continue
+      expect(selector).toContain(':not(')
+    }
+  })
+
+  it('does not blanket-override opacity, which would unhide legitimately hidden UI', () => {
+    const css = chromeCss()
+    // No unqualified transparency override — fancybox overlays, closed
+    // dropdowns and inactive tab panels must stay hidden.
+    expect(css).not.toMatch(/^\s*\*\s*\{/m)
+    expect(css).not.toContain('[style*="opacity"]')
+    expect(css).not.toContain('.fancybox')
+  })
+})
