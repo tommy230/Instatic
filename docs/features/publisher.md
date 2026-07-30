@@ -295,6 +295,11 @@ self-contained static export: **a published page never hits the server to
 generate its HTML, CSS, or JS. The only request that touches the DB is the
 `/_instatic/hole/` fragment fetch** for a page's dynamic islands.
 
+For non-root HTML routes, `readArtefact` treats extensionless and
+trailing-slash URLs as equivalent: `/about` and `/about/` can both resolve the
+same baked page. An exact artefact wins if both spellings were explicitly
+published.
+
 Hole shells are stamped with the *next* publish version (`getPublishVersion() +
 1`) at bake time, because `bumpPublishVersion()` runs as the synchronous
 statement right after the slot swap — so a baked `<instatic-hole data-instatic-version>`

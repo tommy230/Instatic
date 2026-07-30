@@ -66,6 +66,31 @@ describe('url-to-disk mapping', () => {
     expect(result).toBe('<html>foo dir</html>')
   })
 
+  it('reads the canonical flat artefact through an equivalent trailing-slash URL', async () => {
+    const { slot, slotDir } = await prepareInactiveSlot(uploadsDir)
+    await writeArtefact(slotDir, '/about', '<html>about flat</html>')
+    await swapSlot(uploadsDir, slot)
+
+    expect(await readArtefact(uploadsDir, '/about/')).toBe('<html>about flat</html>')
+  })
+
+  it('prefers an exact directory artefact over the equivalent flat artefact', async () => {
+    const { slot, slotDir } = await prepareInactiveSlot(uploadsDir)
+    await writeArtefact(slotDir, '/about', '<html>about flat</html>')
+    await writeArtefact(slotDir, '/about/', '<html>about directory</html>')
+    await swapSlot(uploadsDir, slot)
+
+    expect(await readArtefact(uploadsDir, '/about/')).toBe('<html>about directory</html>')
+  })
+
+  it('reads a directory artefact through the equivalent extensionless URL', async () => {
+    const { slot, slotDir } = await prepareInactiveSlot(uploadsDir)
+    await writeArtefact(slotDir, '/about/', '<html>about directory</html>')
+    await swapSlot(uploadsDir, slot)
+
+    expect(await readArtefact(uploadsDir, '/about')).toBe('<html>about directory</html>')
+  })
+
   it('/foo/bar maps to foo/bar.html', async () => {
     const { slot, slotDir } = await prepareInactiveSlot(uploadsDir)
     await writeArtefact(slotDir, '/foo/bar', '<html>foo bar</html>')

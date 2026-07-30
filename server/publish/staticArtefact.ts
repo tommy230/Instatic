@@ -12,6 +12,10 @@
  *       posts/hello.html  (for URL /posts/hello)
  *     b/                  (the other slot — mirror structure)
  *
+ * Reads treat extensionless and trailing-slash spellings as equivalent for
+ * non-root routes. The exact file wins when both `about.html` and
+ * `about/index.html` exist.
+ *
  * The two-slot symlink swap guarantees that `current` always points to a
  * COMPLETE, valid slot. Visitors see either the old generation or the new
  * generation — never a partial state, never a missing file.
@@ -138,6 +142,25 @@ function safeRelPath(urlPath: string): string {
  */
 function computeDiskRelPath(urlPath: string): string {
   return urlToDiskRelPath(`/${safeRelPath(urlPath)}`)
+}
+
+/**
+ * Return the exact disk path first, followed by the equivalent trailing-slash
+ * spelling for non-root routes. Public route resolution already treats
+ * `/about` and `/about/` as the same slug, so Layer A must not miss an
+ * otherwise valid baked artefact solely because one spelling maps to
+ * `about.html` and the other maps to `about/index.html`.
+ */
+function computeReadDiskRelPaths(urlPath: string): string[] {
+  const safePath = `/${safeRelPath(urlPath)}`
+  const exact = urlToDiskRelPath(safePath)
+  if (safePath === '/') return [exact]
+
+  const equivalentPath = safePath.endsWith('/')
+    ? safePath.replace(/\/+$/, '')
+    : `${safePath}/`
+  const equivalent = urlToDiskRelPath(equivalentPath)
+  return exact === equivalent ? [exact] : [exact, equivalent]
 }
 
 /**
@@ -354,9 +377,9 @@ async function removeSymlinkEntry(path: string): Promise<void> {
  *     `setImmediate` drain (which lets the rename's completion callback fire)
  *     always sees the completed, valid symlink.
  *
- * Both error classes are transient: the first retry always resolves to the
- * stable new slot.  Up to 5 attempts are made with one `setImmediate` drain
- * between each so that the writer's pending IO callbacks fire first.
+ * A missing route produces the same `ENOENT` signal. Up to 5 attempts are made
+ * with one `setImmediate` drain between each so that the writer's pending IO
+ * callbacks fire first; after that, the equivalent route spelling is tried.
  *
  * Returns `null` if:
  *   - The `current` symlink does not exist (no artefacts published yet).
@@ -368,40 +391,36 @@ async function removeSymlinkEntry(path: string): Promise<void> {
  * fast path: 1 syscall on cache hit, no DB).
  */
 export async function readArtefact(uploadsDir: string, urlPath: string): Promise<string | null> {
-  // Validate the URL and compute the relative disk path
-  let diskRelPath: string
+  // Validate the URL and compute exact + equivalent route spellings.
+  let diskRelPaths: string[]
   try {
-    diskRelPath = computeDiskRelPath(urlPath)
+    diskRelPaths = computeReadDiskRelPaths(urlPath)
   } catch {
     // Unsafe path — return null rather than throw (callers expect null on miss)
     return null
   }
 
-  // Open through `current/<path>` so the OS follows the symlink atomically
-  // inside open(2).  The same `filePath` value is used on every attempt —
-  // each call to readFile re-resolves the `current` symlink at the OS level,
-  // so after a swap the next attempt automatically reads from the new slot.
-  const filePath = join(getPublishedDir(uploadsDir), 'current', diskRelPath)
+  for (const diskRelPath of diskRelPaths) {
+    // Open through `current/<path>` so the OS follows the symlink atomically
+    // inside open(2). Each read re-resolves `current`, so a retry after a swap
+    // automatically reads from the new slot.
+    const filePath = join(getPublishedDir(uploadsDir), 'current', diskRelPath)
 
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      return await readFile(filePath, 'utf-8')
-    } catch (err) {
-      const code = isNodeError(err) ? err.code : null
-      // Retriable errors from the atomic symlink protocol:
-      //   ENOENT   — slot wipe race: the writer wiped the old slot between the
-      //              kernel's symlink resolution and the actual file open.
-      //   ENOTDIR  — same wipe race at the directory level.
-      //   EINVAL   — macOS APFS returns EINVAL (not ENOENT) when open(2) tries to
-      //              follow `current` at the exact moment rename(current.tmp →
-      //              current) is executing; the directory entry is transiently
-      //              in an inconsistent state.  One retry after setImmediate always
-      //              sees the completed rename.
-      if (code !== 'ENOENT' && code !== 'ENOTDIR' && code !== 'EINVAL') {
-        return null // Non-retriable IO error — treat as miss
-      }
-      if (attempt < 4) {
-        await new Promise<void>((resolve) => setImmediate(resolve))
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return await readFile(filePath, 'utf-8')
+      } catch (err) {
+        const code = isNodeError(err) ? err.code : null
+        // Retriable errors from the atomic symlink protocol:
+        //   ENOENT   — slot wipe race or this route spelling is absent.
+        //   ENOTDIR  — same race or an incompatible path shape.
+        //   EINVAL   — transient macOS/APFS symlink rename state.
+        if (code !== 'ENOENT' && code !== 'ENOTDIR' && code !== 'EINVAL') {
+          return null // Non-retriable IO error — treat as miss
+        }
+        if (attempt < 4) {
+          await new Promise<void>((resolve) => setImmediate(resolve))
+        }
       }
     }
   }
