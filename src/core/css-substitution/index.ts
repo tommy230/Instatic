@@ -1,11 +1,13 @@
 /**
- * substitutionEncode — make CSS declarations that use substitution functions
- * (`var()` / `env()`) survive ANY CSS engine's parse, byte-faithfully.
+ * substitutionEncode — make CSS declarations that use engine-divergent CSS
+ * functions (`var()` / `env()` / `clamp()`) survive ANY CSS engine's parse,
+ * byte-faithfully.
  *
  * ## The problem
  *
  * A declaration whose value contains `var()`/`env()` cannot be expanded at
- * parse time, and engines disagree about what their CSSOM then exposes:
+ * parse time, and happy-dom also drops otherwise-valid `clamp()` declarations.
+ * Engines therefore disagree about what their CSSOM exposes:
  *
  * - **Chromium** stores a "pending-substitution value": `style.length`
  *   enumerates the shorthand's longhands, but `getPropertyValue(longhand)`
@@ -24,8 +26,8 @@
  *
  * Every engine preserves CUSTOM PROPERTY declarations verbatim (validated in
  * Chromium and happy-dom: both enumerate them with byte-identical values).
- * So before parsing, each declaration whose value contains `var(`/`env(` is
- * rewritten to a marker custom property:
+ * So before parsing, each declaration whose value contains
+ * `var(`/`env(`/`clamp(` is rewritten to a marker custom property:
  *
  *   `border-left: 1px solid var(--rule)`
  *     → `--instatic-sub-border-left: 1px solid var(--rule)`
@@ -44,8 +46,8 @@ import type { CSSDeclarationPriorityBag } from '@core/page-tree'
 /** Prefix for encoded substitution declarations. */
 export const SUBSTITUTION_PROP_MARKER = '--instatic-sub-'
 
-/** A value that contains a `var(` or `env(` substitution function. */
-export const SUBSTITUTION_FN_RE = /\b(?:var|env)\(/
+/** A value containing a CSS function whose declaration is lossy in a supported CSSOM. */
+export const SUBSTITUTION_FN_RE = /\b(?:var|env|clamp)\(/
 
 /** At-rule blocks whose contents must pass through unencoded. */
 const SKIPPED_AT_RULES = new Set(['keyframes', 'font-face'])
@@ -156,9 +158,9 @@ export function decodeSubstitutionProperty(kebab: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Rewrite one `prop: value` chunk to its marker form when the value uses a
- * substitution function. Custom properties and anything that doesn't parse as
- * a plain declaration pass through verbatim.
+ * Rewrite one `prop: value` chunk to its marker form when the value uses an
+ * engine-divergent CSS function. Custom properties and anything that doesn't
+ * parse as a plain declaration pass through verbatim.
  */
 function encodeDeclarationChunk(chunk: string): string {
   const colon = chunk.indexOf(':')
