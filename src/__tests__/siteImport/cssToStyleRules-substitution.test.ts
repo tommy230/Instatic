@@ -1,11 +1,12 @@
 /**
- * Substitution-declaration fidelity (`var()` / `env()` values).
+ * CSS function declaration fidelity (`var()` / `env()` / `clamp()` values).
  *
  * CSS engines disagree about what their CSSOM exposes for declarations whose
  * value contains a substitution function: Chromium enumerates the shorthand's
  * longhands with EMPTY values (the text survives only in cssText), while
  * happy-dom destroys the declaration entirely (each longhand reports the bare
- * `var(...)` text; `1px solid` is gone from cssText too).
+ * `var(...)` text; `1px solid` is gone from cssText too). happy-dom also drops
+ * otherwise-valid `clamp()` declarations.
  *
  * `@core/css-substitution` removes the divergence at the source: every
  * substitution declaration is encoded as a marker custom property BEFORE the
@@ -24,6 +25,22 @@ import {
 } from '@core/css-substitution'
 
 describe('cssToStyleRules — substitution declarations survive verbatim', () => {
+  it('preserves clamp declarations used for fluid typography and spacing', () => {
+    const { rules, warnings } = cssToStyleRules(`
+      section { padding: clamp(4rem, 8vw, 9rem) 0; }
+      .section-header { margin-bottom: clamp(3rem, 5vw, 5rem); }
+      .track-card { padding: clamp(2rem, 4vw, 3.5rem); }
+      h2 { font-size: clamp(2.5rem, 5vw, 5rem); }
+    `)
+
+    const bySel = Object.fromEntries(rules.map((r) => [r.selector, r.styles]))
+    expect(bySel.section.padding).toBe('clamp(4rem, 8vw, 9rem) 0')
+    expect(bySel['.section-header'].marginBottom).toBe('clamp(3rem, 5vw, 5rem)')
+    expect(bySel['.track-card'].padding).toBe('clamp(2rem, 4vw, 3.5rem)')
+    expect(bySel.h2.fontSize).toBe('clamp(2.5rem, 5vw, 5rem)')
+    expect(warnings).toHaveLength(0)
+  })
+
   it('preserves shorthand+var declarations byte-faithfully', () => {
     const { rules, warnings } = cssToStyleRules(`
       .plan { padding: 40px; border-left: 1px solid var(--rule); }
