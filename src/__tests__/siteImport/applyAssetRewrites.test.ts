@@ -8,6 +8,7 @@ import '@modules/base'
 import { applyAssetRewrites, buildImportPlan } from '@core/siteImport'
 import type { ImportPlan } from '@core/siteImport'
 import { makeSampleFileMap, makeMockSiteDocument } from './mockSite'
+import { MINIMAL_PNG } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -293,6 +294,50 @@ describe('applyAssetRewrites — inline background node.inlineStyles', () => {
 // ---------------------------------------------------------------------------
 
 describe('applyAssetRewrites — end-to-end via buildImportPlan', () => {
+  it('plans and rewrites every local imported img srcset candidate while preserving external candidates', () => {
+    const encoder = new TextEncoder()
+    const fileMap = {
+      files: {
+        'pages/index.html': {
+          bytes: encoder.encode(
+            '<img src="../images/fallback.png" srcset="../images/card.png 800w, ../images/card-large.png 1600w, https://cdn.example.com/card.webp 2x" alt="Card">',
+          ),
+          mimeType: 'text/html',
+        },
+        'images/fallback.png': { bytes: MINIMAL_PNG, mimeType: 'image/png' },
+        'images/card.png': { bytes: MINIMAL_PNG, mimeType: 'image/png' },
+        'images/card-large.png': { bytes: MINIMAL_PNG, mimeType: 'image/png' },
+      },
+    }
+    const plan = buildImportPlan({ fileMap, currentSite: makeMockSiteDocument() })
+    const image = Object.values(plan.pages[0]!.nodeFragment.nodes)
+      .find((node) => node.moduleId === 'base.image')!
+
+    expect(plan.assets.map((asset) => asset.sourcePath).sort()).toEqual([
+      'images/card-large.png',
+      'images/card.png',
+      'images/fallback.png',
+    ])
+    expect(image.props.htmlAttributes).toEqual({
+      alt: 'Card',
+      srcset: 'images/card.png 800w, images/card-large.png 1600w, https://cdn.example.com/card.webp 2x',
+    })
+
+    const rewritten = applyAssetRewrites(plan, {
+      'images/fallback.png': '/media/fallback.png',
+      'images/card.png': '/media/card.png',
+      'images/card-large.png': '/media/card-large.png',
+    })
+    const rewrittenImage = Object.values(rewritten.pages[0]!.nodeFragment.nodes)
+      .find((node) => node.moduleId === 'base.image')!
+
+    expect(rewrittenImage.props.src).toBe('/media/fallback.png')
+    expect(rewrittenImage.props.htmlAttributes).toEqual({
+      alt: 'Card',
+      srcset: '/media/card.png 800w, /media/card-large.png 1600w, https://cdn.example.com/card.webp 2x',
+    })
+  })
+
   it('no source paths remain after rewriting', () => {
     const fileMap = makeSampleFileMap()
     const currentSite = makeMockSiteDocument()

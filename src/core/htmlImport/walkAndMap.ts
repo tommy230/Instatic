@@ -125,18 +125,12 @@ const MODULE_GENERATED_ATTRIBUTE_NAMES: Record<string, readonly string[]> = {
     'data-instatic-target-table',
     'method',
   ],
-  'base.image': [
-    'alt',
-    'decoding',
-    'fetchpriority',
-    'height',
-    'loading',
-    'sizes',
-    'src',
-    'srcset',
-    'style',
-    'width',
-  ],
+  // Only attributes the module can always regenerate are dropped. An imported
+  // image pointing at a remote URL has no media-library asset, so regenerating
+  // responsive attributes and performance hints from the asset dropped them
+  // outright. The renderer keeps source values and regenerates missing values
+  // for library-backed images.
+  'base.image': ['src', 'style'],
   'base.link': ['href', 'rel', 'target'],
 }
 

@@ -383,6 +383,10 @@ function normalizeNodeProps(
   if (isStringRecord(htmlAttributes)) {
     const normalizedAttrs: Record<string, string> = { ...htmlAttributes }
     for (const [attrName, attrValue] of Object.entries(normalizedAttrs)) {
+      if (attrName === 'srcset') {
+        normalizedAttrs[attrName] = normalizeSrcset(attrValue, htmlFilePath, fileMap, assetMap)
+        continue
+      }
       const fileMapKey = resolveAndRecord(attrValue, htmlFilePath, fileMap, assetMap)
       if (fileMapKey !== null) normalizedAttrs[attrName] = fileMapKey
     }
@@ -595,4 +599,3 @@ function replaceRawUrlInValue(value: string, rawUrl: string, fileMapKey: string)
   const re = new RegExp(`url\\(\\s*(['"]?)${escaped}\\1\\s*\\)`, 'g')
   return value.replace(re, `url('${fileMapKey}')`)
 }
-

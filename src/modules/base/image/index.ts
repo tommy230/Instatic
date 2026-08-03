@@ -15,7 +15,7 @@
  *
  * When the publisher hasn't pre-resolved the asset (external URL, page
  * built pre-pipeline, editor canvas preview), we fall back to a plain
- * `<img src loading decoding>` so the module never breaks.
+ * `<img src>` so the module never breaks.
  */
 import type { ModuleDefinition } from '@core/module-engine'
 import type { RenderResolvedMedia } from '@core/publisher'
@@ -24,8 +24,8 @@ import { registry } from '@core/module-engine'
 import { ImageSolidIcon } from 'pixel-art-icons/icons/image-solid'
 import { escapeHtml, safeUrl } from '@modules/base/utils/escape'
 import {
-  htmlAttributesAttr,
   htmlAttributesControl,
+  prepareHtmlAttributes,
 } from '@modules/base/shared/htmlAttributes'
 import { buildMediaSrcset } from '@modules/base/utils/mediaAttrs'
 import { ImageEditor } from './ImageEditor'
@@ -175,16 +175,27 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
   render: (props) => {
     const src = safeUrl(props.src)
     if (!src) return { html: '' }
-    const htmlAttrs = htmlAttributesAttr(props.htmlAttributes)
 
-    // Alt text comes exclusively from the library asset — the library is
-    // the single source of truth for accessibility metadata. Edited in
-    // the Media viewer (asset row), never as a per-instance module prop.
+    // An imported image keeps whatever the source page declared. Those
+    // attributes survive the import as `htmlAttributes`.
+    const { attributes: authored, attr: htmlAttrs } = prepareHtmlAttributes(
+      props.htmlAttributes,
+      new Set(['alt']),
+    )
+    const sourceHas = (name: string) => Object.hasOwn(authored, name)
+    // `alt` is resolved below and emitted once, from whichever source wins, so
+    // it is held out of the generic passthrough rather than written twice.
+    const authoredAltRaw = authored.alt
+
+    // Alt text: the library asset is the editable source of truth, and the
+    // source page's own alt is the fallback. A non-empty library value wins;
+    // otherwise an imported image retains the source declaration.
     //
     // The resolved-media payload is raw (not run through the publisher's
     // `escapeProps`), so we HTML-escape here at the boundary.
     const media = props._resolvedMediaByKey?.src
-    const alt = escapeHtml(media?.altText?.trim() ?? '')
+    const authoredAlt = typeof authoredAltRaw === 'string' ? authoredAltRaw.trim() : ''
+    const alt = escapeHtml(media?.altText?.trim() || authoredAlt)
 
     const loading = props.loading === 'eager' ? 'eager' : 'lazy'
     const decoding = props.decoding === 'sync' ? 'sync' : props.decoding === 'auto' ? 'auto' : 'async'
@@ -210,13 +221,25 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
     // Build the attribute string. Each attribute is conditionally appended
     // so the output is clean (no `width="null"` or empty `srcset=""`).
     const attrs: string[] = [`src="${src}"`, `alt="${alt}"`]
-    if (srcset) attrs.push(`srcset="${srcset}"`)
-    if (sizes) attrs.push(`sizes="${sizes}"`)
-    if (width !== null) attrs.push(`width="${width}"`)
-    if (height !== null) attrs.push(`height="${height}"`)
-    attrs.push(`loading="${loading}"`)
-    attrs.push(`decoding="${decoding}"`)
-    if (fetchPriority !== 'auto') attrs.push(`fetchpriority="${fetchPriority}"`)
+    if (srcset && !sourceHas('srcset')) attrs.push(`srcset="${srcset}"`)
+    // Generated `sizes` is deliberately layout-derived, independent of a source-declared `srcset`.
+    if (sizes && !sourceHas('sizes')) attrs.push(`sizes="${sizes}"`)
+    if (width !== null && !sourceHas('width')) attrs.push(`width="${width}"`)
+    if (height !== null && !sourceHas('height')) attrs.push(`height="${height}"`)
+    // With no resolved media asset (an imported remote image, or a library
+    // asset that failed to resolve), generated performance hints are omitted.
+    // Forcing loading="lazy" on an image inside a zero-height container means
+    // the browser never fetches it; source-declared hints still pass through.
+    const withoutResolvedAsset = !media
+    if (!sourceHas('loading') && !withoutResolvedAsset) {
+      attrs.push(`loading="${loading}"`)
+    }
+    if (!sourceHas('decoding') && !withoutResolvedAsset) {
+      attrs.push(`decoding="${decoding}"`)
+    }
+    if (fetchPriority !== 'auto' && !sourceHas('fetchpriority') && !withoutResolvedAsset) {
+      attrs.push(`fetchpriority="${fetchPriority}"`)
+    }
     // BlurHash background sits BEHIND the image via inline style. Once
     // the variant loads, the opaque <img> covers it. Skipped when
     // loading="eager" — those are above-the-fold images where the user

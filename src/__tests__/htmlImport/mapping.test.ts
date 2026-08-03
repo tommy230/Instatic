@@ -996,7 +996,9 @@ describe('HTML attribute preservation — props.htmlAttributes for ordinary base
     expect(children[0]!.moduleId).toBe('base.link')
     expect(children[0]!.props.htmlAttributes).toEqual({ 'data-track': 'jump' })
     expect(children[1]!.moduleId).toBe('base.image')
-    expect(children[1]!.props.htmlAttributes).toEqual({ 'data-lazy': 'logo' })
+    // `alt` is kept because an imported remote image has no library asset from
+    // which the module could regenerate it.
+    expect(children[1]!.props.htmlAttributes).toEqual({ 'data-lazy': 'logo', alt: 'Logo' })
   })
 })
 

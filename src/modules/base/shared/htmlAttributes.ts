@@ -30,14 +30,23 @@ function normalizeHtmlAttributes(value: unknown): Record<string, string> {
   return attrs
 }
 
-export function htmlAttributesAttr(value: unknown): string {
-  const attrs = normalizeHtmlAttributes(value)
-  return Object.entries(attrs)
+export function prepareHtmlAttributes(
+  value: unknown,
+  omittedNames: ReadonlySet<string> = new Set(),
+): { attributes: Record<string, string>; attr: string } {
+  const attributes = normalizeHtmlAttributes(value)
+  const attr = Object.entries(attributes)
+    .filter(([name]) => !omittedNames.has(name))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, attrValue]) => ` ${name}="${escapeHtml(attrValue)}"`)
     .join('')
+  return { attributes, attr }
+}
+
+export function htmlAttributesAttr(value: unknown): string {
+  return prepareHtmlAttributes(value).attr
 }
 
 export function htmlAttributesForReact(value: unknown): Record<string, string> {
-  return normalizeHtmlAttributes(value)
+  return prepareHtmlAttributes(value).attributes
 }

@@ -149,6 +149,10 @@ function rewriteProps(
   if (isStringRecord(htmlAttributes)) {
     const rewrittenAttrs: Record<string, string> = { ...htmlAttributes }
     for (const [attrName, attrValue] of Object.entries(rewrittenAttrs)) {
+      if (attrName === 'srcset') {
+        rewrittenAttrs[attrName] = rewriteSrcset(attrValue, rewriteMap)
+        continue
+      }
       rewrittenAttrs[attrName] = rewriteMap[attrValue] ?? attrValue
     }
     result['htmlAttributes'] = rewrittenAttrs

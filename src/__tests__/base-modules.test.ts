@@ -793,8 +793,58 @@ describe('base.image — render() specifics', () => {
     expect(html).toContain('alt=""')
   })
 
-  it('includes loading="lazy" by default', () => {
-    const { html } = renderModule(ImageModule, { src: '/img.jpg' })
+  it('keeps the source srcset, sizes and dimensions on an imported image', () => {
+    const { html } = renderModule(ImageModule, {
+      src: 'https://example.com/bg.jpg',
+      htmlAttributes: {
+        srcset: 'https://example.com/bg-800.jpg 800w, https://example.com/bg-1600.jpg 1600w',
+        sizes: '(max-width: 800px) 100vw, 1600px',
+        width: '1600',
+        height: '900',
+        fetchpriority: 'high',
+      },
+    })
+
+    expect(html).toContain('srcset="https://example.com/bg-800.jpg 800w')
+    expect(html).toContain('sizes="(max-width: 800px) 100vw, 1600px"')
+    expect(html).toContain('width="1600"')
+    expect(html).toContain('height="900"')
+    expect(html).toContain('fetchpriority="high"')
+  })
+
+  it('does not force loading="lazy" onto an imported image', () => {
+    // A lazy image inside a zero-height container is never fetched.
+    const { html } = renderModule(ImageModule, {
+      src: 'https://example.com/bg.jpg',
+      htmlAttributes: { srcset: 'https://example.com/bg-800.jpg 800w', width: '1600' },
+    })
+    expect(html).not.toContain('loading=')
+  })
+
+  it('keeps the source loading value when the source set one', () => {
+    const { html } = renderModule(ImageModule, {
+      src: 'https://example.com/a.jpg',
+      htmlAttributes: { loading: 'lazy', width: '10' },
+    })
+    expect(html.match(/loading="lazy"/g)).toHaveLength(1)
+  })
+
+  it('includes loading="lazy" by default for a library-backed image', () => {
+    const { html } = renderModule(ImageModule, {
+      src: '/uploads/img.jpg',
+      _resolvedMediaByKey: {
+        src: {
+          publicPath: '/uploads/img.jpg',
+          mimeType: 'image/jpeg',
+          width: 800,
+          height: 600,
+          altText: '',
+          blurHash: null,
+          posterPath: null,
+          variants: [],
+        },
+      },
+    })
     expect(html).toContain('loading="lazy"')
   })
 
