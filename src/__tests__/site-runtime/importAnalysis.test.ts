@@ -119,6 +119,54 @@ describe('runtime script import analysis', () => {
     ])
   })
 
+  it("warns for Vite's dynamic-import feature probe without treating it as a dependency", () => {
+    const analysis = analyzeRuntimeScriptImports(
+      [scriptFile('vite-probe', 'src/scripts/bundle.js', 'function probe() { return import("_") }')],
+      { dependencies: {}, devDependencies: {} },
+    )
+
+    expect(analysis.usage.size).toBe(0)
+    expect(analysis.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'runtime-dependency-feature-probe',
+        message: expect.stringContaining('Vite'),
+        packageName: '_',
+        severity: 'warning',
+      }),
+    ])
+    expect(analysis.diagnostics.some((diagnostic) => diagnostic.code === 'runtime-dependency-invalid-name')).toBe(false)
+  })
+
+  it("rejects a static import using Vite's dynamic-only feature-probe specifier", () => {
+    const analysis = analyzeRuntimeScriptImports(
+      [scriptFile('invalid-static', 'src/scripts/invalid-static.js', 'import value from "_"')],
+      { dependencies: {}, devDependencies: {} },
+    )
+
+    expect(analysis.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'runtime-dependency-invalid-name',
+        packageName: '_',
+        severity: 'error',
+      }),
+    ])
+  })
+
+  it('still rejects invalid package specifiers', () => {
+    const analysis = analyzeRuntimeScriptImports(
+      [scriptFile('invalid', 'src/scripts/invalid.js', 'import("!bad")')],
+      { dependencies: {}, devDependencies: {} },
+    )
+
+    expect(analysis.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'runtime-dependency-invalid-name',
+        packageName: '!bad',
+        severity: 'error',
+      }),
+    ])
+  })
+
   it('rejects Node builtin imports in browser runtime scripts', () => {
     const analysis = analyzeRuntimeScriptImports(
       [scriptFile('node-api', 'src/scripts/node-api.ts', `import fs from 'node:fs'; import path from 'path'`)],

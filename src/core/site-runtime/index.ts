@@ -33,6 +33,7 @@ export {
   normalizeSiteRuntimeConfig,
 } from './runtimeConfig'
 export {
+  VITE_DYNAMIC_IMPORT_PROBE,
   analyzeRuntimeScriptImports,
   extractRuntimeImportSpecifiers,
   packageNameFromImportSpecifier,

@@ -2,6 +2,7 @@ import { relative, sep } from 'node:path'
 import * as esbuild from 'esbuild'
 import type { Page, SiteDocument } from '@core/page-tree'
 import {
+  VITE_DYNAMIC_IMPORT_PROBE,
   analyzeRuntimeScriptImports,
   collectRuntimeScripts,
   normalizeSiteRuntimeConfig,
@@ -240,6 +241,8 @@ export async function buildSiteRuntimeScripts(
       chunkNames: 'chunks/[name]-[hash]',
       entryNames: 'entries/[name]-[hash]',
       entryPoints,
+      // Keep the Vite feature probe unresolved, matching its analysis constant.
+      external: [VITE_DYNAMIC_IMPORT_PROBE],
       format: 'esm',
       logLevel: 'silent',
       metafile: true,

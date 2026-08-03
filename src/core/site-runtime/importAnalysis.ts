@@ -9,6 +9,9 @@ import type {
   SiteRuntimeDiagnostic,
 } from './schemas'
 
+/** Vite's dynamic-import feature probe: `import("_")`, never executed. */
+export const VITE_DYNAMIC_IMPORT_PROBE = '_'
+
 const NODE_BUILTIN_PACKAGES = new Set([
   'assert',
   'buffer',
@@ -337,6 +340,21 @@ export function analyzeRuntimeScriptImports(
             importEntry.kind,
           ))
         }
+        continue
+      }
+
+      // Vite emits `import("_")` inside a function it never calls to
+      // feature-detect dynamic import. It is not a dependency and must not fail
+      // the publish, even though its literal specifier reaches the name check.
+      if (importEntry.kind === 'dynamic' && packageName === VITE_DYNAMIC_IMPORT_PROBE) {
+        diagnostics.push(importDiagnostic(
+          'runtime-dependency-feature-probe',
+          `Ignoring Vite feature probe import("${packageName}")`,
+          'warning',
+          file,
+          importEntry.kind,
+          packageName,
+        ))
         continue
       }
 
