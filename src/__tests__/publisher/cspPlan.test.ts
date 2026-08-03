@@ -13,7 +13,9 @@ import { describe, it, expect } from 'bun:test'
 import {
   addCspSources,
   createBaseCspPlan,
+  cspDirectiveNames,
   cspMetaTag,
+  ensureSelfInFetchDirectives,
   parseCspContent,
   publishPage,
   serializeCsp,
@@ -194,7 +196,7 @@ function extractPublishedCsp(html: string): string {
   return m[1]!
 }
 
-describe('publishPage — CSP frame-src from module cspSources', () => {
+describe('publishPage — CSP from module cspSources', () => {
   it('page with a youtube video has youtube.com in frame-src (not none)', () => {
     const page = makePage({
       root: {
@@ -246,5 +248,94 @@ describe('publishPage — CSP frame-src from module cspSources', () => {
     const { html } = publishPage(page, makeSite(), reg)
     const csp = extractPublishedCsp(html)
     expect(csp).toContain('https://www.youtube-nocookie.com')
+  })
+
+  it("adds 'self' when a module creates font-src with an external origin", () => {
+    const page = makePage({
+      root: { moduleId: 'test.font', props: {} },
+    })
+    const reg = makeRegistry({
+      'test.font': makeModule('test.font', {
+        render: () => ({
+          html: '<p>Font module</p>',
+          cspSources: [
+            { directive: 'font-src', sources: ['https://fonts.example.com'] },
+          ],
+        }),
+      }),
+    })
+
+    const { html } = publishPage(page, makeSite(), reg)
+
+    expect(extractPublishedCsp(html)).toContain(
+      "font-src 'self' https://fonts.example.com",
+    )
+  })
+})
+
+describe('ensureSelfInFetchDirectives', () => {
+  it("restores 'self' on a newly created directive", () => {
+    // A derived `font-src` with only an external origin blocks same-origin faces.
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    const base = cspDirectiveNames(plan)
+    addCspSources(plan, 'font-src', ['https://fonts.example.com'])
+
+    ensureSelfInFetchDirectives(plan, base)
+
+    expect(serializeCsp(plan)).toContain("font-src 'self' https://fonts.example.com")
+  })
+
+  it('keeps the base sources it already had', () => {
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    const base = cspDirectiveNames(plan)
+    addCspSources(plan, 'img-src', ['https://cdn.example.com'])
+
+    ensureSelfInFetchDirectives(plan, base)
+
+    const policy = serializeCsp(plan)
+    expect(policy).toContain('data:')
+    expect(policy).toContain('https:')
+    expect(policy).toContain("'self'")
+  })
+
+  it('leaves a directive the base decided alone', () => {
+    // frame-src 'none' gaining an embed origin should permit that embed, not
+    // quietly reopen same-origin framing.
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    const base = cspDirectiveNames(plan)
+    addCspSources(plan, 'frame-src', ['https://player.vimeo.com'])
+
+    ensureSelfInFetchDirectives(plan, base)
+
+    expect(serializeCsp(plan)).toContain('frame-src https://player.vimeo.com')
+    expect(serializeCsp(plan)).not.toContain("frame-src 'self'")
+  })
+
+  it("leaves a deliberate 'none' closed", () => {
+    const plan = createBaseCspPlan({ anyScriptTag: false })
+    ensureSelfInFetchDirectives(plan, cspDirectiveNames(plan))
+
+    // No script tag on the page means script-src 'none' is intended.
+    expect(serializeCsp(plan)).toContain("script-src 'none'")
+    expect(serializeCsp(plan)).toContain("frame-src 'none'")
+  })
+
+  it("leaves a newly declared directive set to exactly 'none' closed", () => {
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    const base = cspDirectiveNames(plan)
+    setCspDirective(plan, 'font-src', ["'none'"])
+
+    ensureSelfInFetchDirectives(plan, base)
+
+    expect(serializeCsp(plan)).toContain("font-src 'none'")
+    expect(serializeCsp(plan)).not.toContain("font-src 'none' 'self'")
+  })
+
+  it('does not invent directives that were never present', () => {
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    ensureSelfInFetchDirectives(plan, cspDirectiveNames(plan))
+
+    expect(serializeCsp(plan)).not.toContain('font-src')
+    expect(serializeCsp(plan)).not.toContain('connect-src')
   })
 })

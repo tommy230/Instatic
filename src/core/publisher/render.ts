@@ -36,7 +36,13 @@ import { PUBLISHER_RESET_CSS } from './reset'
 import { buildSiteFrameworkCss } from './frameworkCss'
 import type { SiteCssBundle } from './siteCssBundle'
 import { escapeHtml, isSafeUrl } from './utils'
-import { addCspSources, createBaseCspPlan, cspMetaTag } from './cspPlan'
+import {
+  addCspSources,
+  createBaseCspPlan,
+  cspDirectiveNames,
+  cspMetaTag,
+  ensureSelfInFetchDirectives,
+} from './cspPlan'
 import type { PublishedPageRuntimeAssets } from '@core/site-runtime/schemas'
 import { hasPublishedRuntimeScripts, scriptTagsForRuntimeAssets } from '@core/site-runtime'
 import { renderNode } from './renderNode'
@@ -414,6 +420,7 @@ function buildContentSecurityPolicy(
   moduleCspSources: ReadonlyMap<string, ReadonlySet<string>>,
 ): string {
   const plan = createBaseCspPlan({ anyScriptTag, importmapSha: importmap?.sha256 })
+  const baseDirectives = cspDirectiveNames(plan)
   // Merge per-page CSP requirements declared by module render() outputs.
   // addCspSources automatically drops the lone 'none' when real sources are
   // added, so frame-src 'none' becomes frame-src <origins> on pages that
@@ -422,6 +429,7 @@ function buildContentSecurityPolicy(
   for (const [directive, sources] of moduleCspSources) {
     addCspSources(plan, directive, sources)
   }
+  ensureSelfInFetchDirectives(plan, baseDirectives)
   return `\n  ${cspMetaTag(plan)}`
 }
 

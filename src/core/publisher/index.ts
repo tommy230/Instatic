@@ -24,7 +24,9 @@ export { escapeProps } from './escapeProps'
 export {
   addCspSources,
   createBaseCspPlan,
+  cspDirectiveNames,
   cspMetaTag,
+  ensureSelfInFetchDirectives,
   parseCspContent,
   rewriteCspMeta,
   serializeCsp,
