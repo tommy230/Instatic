@@ -53,6 +53,7 @@ describe('canvas form controls', () => {
     const submitId = useEditorStore.getState().insertNode('base.submit', {
       label: 'Send',
       formId: '',
+      htmlAttributes: { 'aria-label': 'Send contact form', 'data-track': 'contact-submit' },
     }, formId)
 
     renderCanvas()
@@ -61,6 +62,8 @@ describe('canvas form controls', () => {
     const input = await waitForCanvasNodeInFrame<HTMLInputElement>('desktop', inputId)
     const select = await waitForCanvasNodeInFrame<HTMLSelectElement>('desktop', selectId)
     const submit = await waitForCanvasNodeInFrame<HTMLButtonElement>('desktop', submitId)
+    expect(submit.getAttribute('aria-label')).toBe('Send contact form')
+    expect(submit.getAttribute('data-track')).toBe('contact-submit')
     let submitted = false
     form.addEventListener('submit', (event) => {
       submitted = true

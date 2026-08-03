@@ -150,6 +150,8 @@ const SubmitPropsSchema = Type.Object({
   label: Type.String({ default: 'Submit' }),
   disabled: Type.Boolean({ default: false }),
   formId: Type.String({ default: '' }),
+  /** Safe attributes carried over from a rebuilt source submit button. */
+  htmlAttributes: Type.Record(Type.String(), Type.String(), HtmlAttributesPropSchemaOptions),
 })
 
 type SubmitProps = Static<typeof SubmitPropsSchema>
@@ -427,13 +429,16 @@ export const SubmitModule: ModuleDefinition<SubmitProps> = {
     label: { type: 'text', label: 'Label' },
     disabled: { type: 'toggle', label: 'Disabled' },
     formId: { type: 'text', label: 'Form ID override', normalize: 'identifier' },
+    htmlAttributes: htmlAttributesControl(),
   },
   propsSchema: SubmitPropsSchema,
   defaults: Value.Create(SubmitPropsSchema),
   component: SubmitEditor,
   htmlTag: 'button',
   render: (props) => ({
-    html: `<button type="submit"${attrs([['form', normalizeIdentifierValue(props.formId)]])}${booleanAttrs(props, ['disabled'])}>${props.label}</button>`,
+    // Module-owned submit attributes precede authored attributes so they win
+    // any duplicate-attribute tie, matching base.form.
+    html: `<button type="submit"${attrs([['form', normalizeIdentifierValue(props.formId)]])}${booleanAttrs(props, ['disabled'])}${htmlAttributesAttr(props.htmlAttributes)}>${props.label}</button>`,
   }),
 }
 

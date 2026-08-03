@@ -1,5 +1,6 @@
 import type { ModuleComponentProps } from '@core/module-engine'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
+import { htmlAttributesForReact } from '@modules/base/shared/htmlAttributes'
 
 type FormProps = Record<string, unknown> & {
   formId: string
@@ -68,6 +69,7 @@ type SubmitProps = Record<string, unknown> & {
   label: string
   disabled: boolean
   formId: string
+  htmlAttributes: Record<string, string>
 }
 
 type FormMessageProps = Record<string, unknown> & {
@@ -211,6 +213,7 @@ export function SubmitEditor({ mcClassName, nodeWrapperProps, props }: ModuleCom
   return (
     <button
       {...nodeWrapperProps}
+      {...htmlAttributesForReact(props.htmlAttributes)}
       className={mcClassName}
       type="button"
       disabled={props.disabled}

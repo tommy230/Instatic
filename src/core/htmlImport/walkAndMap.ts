@@ -108,6 +108,9 @@ const HTML_ATTRIBUTE_MODULES = new Set([
   'base.link',
   'base.button',
   'base.image',
+  // A rebuilt submit button keeps safe source identity attributes so authored
+  // id-based selectors and data hooks still target the published control.
+  'base.submit',
   // A form is the anchor an authored progressive-enhancement script binds to,
   // so its safe data-* / ARIA attributes have to survive import like any other
   // element's. Without this the hooks silently vanish and the script no-ops.
@@ -138,6 +141,19 @@ const MODULE_GENERATED_ATTRIBUTE_NAMES: Record<string, readonly string[]> = {
     'width',
   ],
   'base.link': ['href', 'rel', 'target'],
+  // The module regenerates its submit attributes and label; source overrides
+  // must not redirect or weaken the rebuilt form's submission contract.
+  'base.submit': [
+    'disabled',
+    'form',
+    'type',
+    'value',
+    'formaction',
+    'formmethod',
+    'formenctype',
+    'formtarget',
+    'formnovalidate',
+  ],
 }
 
 /**
