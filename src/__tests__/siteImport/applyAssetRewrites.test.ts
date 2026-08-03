@@ -17,6 +17,7 @@ import { makeSampleFileMap, makeMockSiteDocument } from './mockSite'
 function planWith(
   props: Record<string, unknown>,
   cssStyles: Record<string, unknown> = {},
+  moduleId = 'base.image',
 ): ImportPlan {
   return {
     pages: [
@@ -31,7 +32,7 @@ function planWith(
           nodes: {
             n1: {
               id: 'n1',
-              moduleId: 'base.image',
+              moduleId,
               props,
               breakpointOverrides: {},
               children: [],
@@ -95,6 +96,21 @@ describe('applyAssetRewrites — node props', () => {
     const result = applyAssetRewrites(plan, REWRITE_MAP)
     const node = Object.values(result.pages[0].nodeFragment.nodes)[0]
     expect(node.props['href']).toBe('/media/abc123.png')
+  })
+
+  it('rewrites base.video videoUrl prop', () => {
+    const plan = planWith({ videoUrl: 'images/hero.png' }, {}, 'base.video')
+    const result = applyAssetRewrites(plan, REWRITE_MAP)
+    const node = Object.values(result.pages[0].nodeFragment.nodes)[0]
+    expect(node.props['videoUrl']).toBe('/media/abc123.png')
+  })
+
+  it('leaves external videoUrl URL unchanged', () => {
+    const externalUrl = 'https://cdn.example.com/promo.mp4'
+    const plan = planWith({ videoUrl: externalUrl }, {}, 'base.video')
+    const result = applyAssetRewrites(plan, REWRITE_MAP)
+    const node = Object.values(result.pages[0].nodeFragment.nodes)[0]
+    expect(node.props['videoUrl']).toBe(externalUrl)
   })
 
   it('rewrites srcset tokens', () => {

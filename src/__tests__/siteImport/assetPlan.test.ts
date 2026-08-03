@@ -68,6 +68,36 @@ describe('buildAssetPlan — img src normalisation', () => {
   })
 })
 
+describe('buildAssetPlan — video URL normalisation', () => {
+  it('normalises base.video videoUrl to a FileMap key and records the asset', () => {
+    const fileMap = makeFileMap({
+      'docs/index.html': { bytes: txt('<html><body><video src="reel.mp4" autoplay muted></video></body></html>') },
+      'docs/reel.mp4': { bytes: txt('video'), mimeType: 'video/mp4' },
+    })
+    const { pagePlan } = makeHtmlPagePlan(
+      'docs/index.html',
+      new TextDecoder().decode(fileMap.files['docs/index.html']!.bytes),
+      fileMap,
+    )
+    const { normalizedPagePlans, assets } = buildAssetPlan([pagePlan], [], fileMap)
+    const videoNode = Object.values(normalizedPagePlans[0].nodeFragment.nodes).find((node) => node.moduleId === 'base.video')
+    expect(videoNode?.props['videoUrl']).toBe('docs/reel.mp4')
+    expect(assets.some((asset) => asset.sourcePath === 'docs/reel.mp4')).toBe(true)
+  })
+
+  it('leaves external videoUrl URLs unchanged and records no asset', () => {
+    const externalUrl = 'https://cdn.example.com/promo.mp4'
+    const fileMap = makeFileMap({
+      'index.html': { bytes: txt(`<html><body><video src="${externalUrl}"></video></body></html>`) },
+    })
+    const { pagePlan } = makeHtmlPagePlan('index.html', new TextDecoder().decode(fileMap.files['index.html']!.bytes), fileMap)
+    const { normalizedPagePlans, assets } = buildAssetPlan([pagePlan], [], fileMap)
+    const videoNode = Object.values(normalizedPagePlans[0].nodeFragment.nodes).find((node) => node.moduleId === 'base.video')
+    expect(videoNode?.props['videoUrl']).toBe(externalUrl)
+    expect(assets.some((asset) => asset.sourcePath === externalUrl)).toBe(false)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // HTML attribute asset normalisation
 // ---------------------------------------------------------------------------
