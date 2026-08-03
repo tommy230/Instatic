@@ -36,3 +36,40 @@ describe('inline CSS emission — </style> breakout (ISS-007)', () => {
     expect(html).toContain('h1{color:red}')
   })
 })
+
+describe('inline CSS emission — safe inline SVG data URI', () => {
+  test('preserves an inline SVG style value in the published style block', () => {
+    const inlineSvgValue =
+      'url(\'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">' +
+      '<path d="M2 8h12" stroke="%23000000"/></svg>\')'
+    const page = makePage({
+      root: { moduleId: 'base.text', props: { text: 'Hi' }, classIds: ['inline-svg'] },
+    })
+    const site = makeSite({
+      pages: [page],
+      styleRules: {
+        'inline-svg': {
+          id: 'inline-svg',
+          name: 'inline-svg',
+          kind: 'class',
+          selector: '.inline-svg',
+          order: 0,
+          styles: { backgroundImage: inlineSvgValue },
+          contextStyles: {},
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      },
+    })
+    const registry = makeRegistry({
+      'base.text': makeModule('base.text', {
+        render: (props) => ({ html: `<h1>${(props as { text: string }).text}</h1>`, css: '' }),
+      }),
+    })
+
+    const { html } = publishPage(page, site, registry)
+    const styleBlock = html.match(/<style>([\s\S]*?)<\/style>/)?.[1]
+
+    expect(styleBlock).toContain(`background-image: ${inlineSvgValue};`)
+  })
+})

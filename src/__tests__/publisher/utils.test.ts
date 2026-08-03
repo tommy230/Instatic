@@ -364,10 +364,8 @@ describe('sanitiseCssValue', () => {
   })
 
   // -------------------------------------------------------------------------
-  // </ — close-tag-open bigram (defence-in-depth against HTML5 RAWTEXT escape).
-  // Pairs with the block-level neutraliser in `sanitizeModuleCSS` so a CSS
-  // value carrying `</style/>` (and the slash-terminator variants the HTML
-  // tokenizer accepts) cannot break out of the inline `<style>` block.
+  // </style and </script — dangerous HTML5 RAWTEXT close-tag prefixes.
+  // They are blocked with any terminator; other </ sequences remain legal CSS.
   // -------------------------------------------------------------------------
 
   it('blocks </style> in url() — direct close-tag-open', () => {
@@ -378,8 +376,36 @@ describe('sanitiseCssValue', () => {
     expect(sanitiseCssValue('url("</style/><img src=x>")')).toBeNull()
   })
 
-  it('blocks </ in any value position', () => {
-    expect(sanitiseCssValue('red </b> blue')).toBeNull()
+  it('blocks slash-terminator variants after the style tag name', () => {
+    expect(sanitiseCssValue('url("</style/>")')).toBeNull()
+    expect(sanitiseCssValue('url("</style/foo>")')).toBeNull()
+  })
+
+  it('blocks </script in any value position', () => {
+    expect(sanitiseCssValue('red </script> blue')).toBeNull()
+  })
+
+  it('blocks the close tags case-insensitively and with stray whitespace', () => {
+    expect(sanitiseCssValue('url("</STYLE><img src=x>")')).toBeNull()
+    expect(sanitiseCssValue('url("</ style>")')).toBeNull()
+  })
+
+  // An inline SVG data URI is ordinary authored CSS and contains `</svg>`.
+  it('allows an inline SVG data URI (the </svg> it must contain)', () => {
+    const value =
+      'url(\'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">' +
+      '<path d="M2 8h12" stroke="%23000000"/></svg>\')'
+    expect(sanitiseCssValue(value)).toBe(value)
+  })
+
+  it('still blocks a </style smuggled inside an SVG data URI', () => {
+    expect(
+      sanitiseCssValue('url(\'data:image/svg+xml;utf8,<svg></style><script>alert(1)</script>\')'),
+    ).toBeNull()
+  })
+
+  it('allows a harmless close tag that is neither style nor script', () => {
+    expect(sanitiseCssValue('red </b> blue')).toBe('red </b> blue')
   })
 
   it('allows < without following / (does not over-block)', () => {

@@ -21,11 +21,15 @@
  * - `data:text/` — data URI in CSS `url()` loads arbitrary HTML in some browsers
  * - `{` or `}` — closes/opens the surrounding selector block, enabling injection
  *               of arbitrary CSS rules (CWE-74, Medium)
- * - `</` — close-tag-open bigram. Defence-in-depth against HTML5 RAWTEXT escape
- *          (`</style/>`, `</style/foo>`, etc.) breaking out of the inline
- *          `<style>` block. Legitimate CSS values never contain `</` — even URLs
- *          with paths use bare `/`. Pairs with the block-level neutraliser in
- *          `sanitizeModuleCSS` (CWE-79).
+ * - `</style` / `</script` — the RAWTEXT-escape sequences. Defence-in-depth
+ *          against `</style/>`, `</style/foo>`, etc. breaking out of the inline
+ *          `<style>` block. Pairs with the block-level neutraliser in
+ *          `sanitizeModuleCSS` (CWE-79). The `</script` alternative is
+ *          belt-and-braces: CSS should never enter a script block, but blocking
+ *          it is free and a future routing mistake would have a severe outcome.
+ *
+ *          An inline SVG `data:` URI is ordinary authored CSS and necessarily
+ *          contains `</svg>`; HTML5 RAWTEXT only ends at `</style`.
  *
  * Note: `;` is intentionally NOT blocked here — it is legitimate inside a quoted
  * `url("data:image/png;base64,…")` value within a declaration block. Contexts
@@ -45,6 +49,6 @@ export function sanitiseCssValue(value: string | number): string | null {
   if (/-moz-binding/i.test(v)) return null
   if (/data\s*:\s*text/i.test(v)) return null
   if (/[{}]/.test(v)) return null
-  if (/<\//.test(v)) return null
+  if (/<\/\s*(style|script)/i.test(v)) return null
   return v
 }

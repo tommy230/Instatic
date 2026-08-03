@@ -26,7 +26,8 @@ function toKebab(camel: string): string {
  *
  * The allowlist was never the security boundary — `sanitiseCssValue` is. It
  * blocks the actual injection vectors at the *value* level (`expression()`,
- * `javascript:`, `behavior:`, `-moz-binding`, `data:text`, `{`/`}`, `</`). A
+ * `javascript:`, `behavior:`, `-moz-binding`, `data:text`, `{`/`}`, and the
+ * `</style` / `</script` prefixes). Other `</` sequences remain valid. A
  * property *name* cannot break out of a declaration or inject script. So the
  * name gate is now permissive: any syntactically-valid CSS property name is
  * emittable, except a tiny denylist of genuinely dead / dangerous names.
@@ -458,11 +459,12 @@ function sanitizeRawKeyframesCss(rawCss: string): string | null {
 /**
  * Reject a condition query / container name that could break out of the
  * generated `@<kind> <query> { … }` block or the surrounding `<style>`
- * element. Mirrors `sanitiseCssValue`'s structural guards: a brace would close
- * the @-block early and let arbitrary rules follow; `</` could terminate the
- * style element (CWE-79). The query is author/importer-controlled, but this is
- * the defence-in-depth boundary at emission — an unsafe query drops the whole
- * layer rather than emitting injectable CSS.
+ * element. This guard is intentionally broader than `sanitiseCssValue`: a
+ * brace would close the @-block early and let arbitrary rules follow, while
+ * condition text never legitimately contains `</`. The query is
+ * author/importer-controlled, but this is the defence-in-depth boundary at
+ * emission — an unsafe query drops the whole layer rather than emitting
+ * injectable CSS (CWE-79).
  */
 function isSafeConditionText(text: string): boolean {
   return !/[{}]/.test(text) && !/<\//.test(text) && !/;/.test(text)
