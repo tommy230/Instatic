@@ -36,7 +36,7 @@
  */
 
 import type { PropertyControl, PropertySchema } from '@core/module-engine'
-import { escapeHtml, isSafeUrl } from './utils'
+import { escapeHtml, isSafeImageUrl, isSafeUrl } from './utils'
 import { sanitizeRichtext, sanitizeSvg } from '@core/sanitize'
 
 /**
@@ -105,7 +105,13 @@ export function escapeProps(
       // Note: publishPage() manually escapeHtml()'s faviconUrl because
       // those are not passed to module render() — they go directly into HTML template
       // strings that never pass through a module's safeUrl() call.
-      escaped[key] = isSafeUrl(value) ? value : '#'
+      // `type: 'image'` additionally permits a `data:image/…` URI. Lazy-loading
+      // themes can ship an inline SVG placeholder as `src` with the real URL
+      // in a data attribute; rewriting it to `#` publishes an <img> pointing
+      // at the page itself. This exception is scoped to image props — `url`
+      // and `media` props keep the stricter test.
+      const allowed = type === 'image' ? isSafeImageUrl(value) : isSafeUrl(value)
+      escaped[key] = allowed ? value : '#'
     } else {
       // Plain strings, and any prop with no matching schema entry: HTML-escape
       // (the safe default — a prop the schema doesn't describe is never trusted

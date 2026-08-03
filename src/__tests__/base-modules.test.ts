@@ -1014,10 +1014,28 @@ describe('base.video — render() specifics', () => {
     expect(css).toContain('.bv-yt')
   })
 
+  it('keeps a data:image poster in the YouTube facade', () => {
+    const { html } = renderModule(VideoModule, {
+      videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      poster: 'data:image/png;base64,AAA',
+    })
+
+    expect(html).toContain('src="data:image/png;base64,AAA"')
+  })
+
   it('renders a <video> element when videoUrl is a library path', () => {
     const { html } = renderModule(VideoModule, { videoUrl: '/uploads/intro.mp4' })
     expect(html).toMatch(/<video/)
     expect(html).toContain('/uploads/intro.mp4')
+  })
+
+  it('keeps a data:image poster on a native video', () => {
+    const { html } = renderModule(VideoModule, {
+      videoUrl: '/uploads/intro.mp4',
+      poster: 'data:image/png;base64,AAA',
+    })
+
+    expect(html).toContain('poster="data:image/png;base64,AAA"')
   })
 
   it('XSS: strips javascript: in videoUrl (url-validated by publisher)', () => {

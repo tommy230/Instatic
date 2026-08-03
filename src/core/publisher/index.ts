@@ -32,7 +32,7 @@ export {
 } from './cspPlan'
 
 
-export { escapeHtml, isSafeUrl, safeUrl, sanitiseCssValue } from './utils'
+export { escapeHtml, isSafeImageUrl, isSafeUrl, safeImageUrl, safeUrl, sanitiseCssValue } from './utils'
 
 export {
   bagToCSS,

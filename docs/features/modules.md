@@ -53,7 +53,7 @@ src/modules/base/
 ├── shared/
 │   └── anchorTarget.ts  — AnchorTargetSchema, ANCHOR_TARGET_OPTIONS, anchorRel() (button + link)
 ├── utils/
-│   ├── escape.ts        — escapeHtml, safeUrl, sanitiseCssValue, buildStyle (re-exports publisher utils)
+│   ├── escape.ts        — escapeHtml, safeUrl, safeImageUrl, sanitiseCssValue, buildStyle (re-exports publisher utils)
 │   ├── htmlTag.ts       — resolveHtmlTag, htmlTagControl, customHtmlTagControl, VOID_HTML_ELEMENTS
 │   └── mediaAttrs.ts    — buildMediaSrcset, pickMediaVariantUrl
 └── index.ts             — side-effect imports; each module self-registers on load
@@ -494,7 +494,7 @@ At render time, `resolveDynamicProps(...)` substitutes the bound value. Used ins
   - `src/core/module-engine/htmlTagBadge.ts` — `resolveHtmlTagBadge`
   - `src/core/module-engine/dependencies.ts` — `ModuleDependencies`, `getMissingModuleDependencies`
   - `src/modules/base/index.ts` — boot-time first-party registration
-  - `src/modules/base/utils/escape.ts` — `escapeHtml`, `safeUrl`, `buildStyle`
+  - `src/modules/base/utils/escape.ts` — `escapeHtml`, `safeUrl`, `safeImageUrl`, `buildStyle`
   - `src/modules/base/utils/htmlTag.ts` — `resolveHtmlTag`, `htmlTagControl`, `VOID_HTML_ELEMENTS`
   - `src/modules/base/utils/mediaAttrs.ts` — `buildMediaSrcset`, `pickMediaVariantUrl`
 - Gate tests:

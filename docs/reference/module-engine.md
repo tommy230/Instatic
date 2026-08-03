@@ -198,7 +198,8 @@ html: { type: 'richtext', label: 'Content', hidden: true }
 
 | control `type`            | escaper at the publisher boundary                          |
 |---------------------------|------------------------------------------------------------|
-| `url` / `image` / `media` | `isSafeUrl` (scheme allowlist: `http`, `https`, `mailto`, `tel`, `sms`, plus relative URLs; passed raw for the module's `safeUrl`) |
+| `url` / `media`           | `isSafeUrl` (scheme allowlist: `http`, `https`, `mailto`, `tel`, `sms`, plus relative URLs; passed raw for the module's `safeUrl`) |
+| `image`                   | `isSafeImageUrl` (the `isSafeUrl` allowlist plus declared `data:image` MIME types: PNG, JPEG, GIF, WebP, AVIF, BMP, icon, and SVG; passed raw for the module's `safeImageUrl`) |
 | `richtext`                | `sanitizeRichtext` (DOMPurify)                             |
 | `svg`                     | `sanitizeSvg` (DOMPurify SVG profile)                      |
 | everything else, or a prop absent from `schema` | `escapeHtml` (safe default)          |
@@ -299,10 +300,10 @@ For `image` and `media` props the publisher's `attachResolvedMediaByKey` puts a 
 
 ```ts
 import { buildMediaSrcset, pickMediaVariantUrl } from '@modules/base/utils/mediaAttrs'
-import { safeUrl, escapeHtml } from '@modules/base/utils/escape'
+import { safeImageUrl, escapeHtml } from '@modules/base/utils/escape'
 
 render: (props) => {
-  const src = safeUrl(props.src)
+  const src = safeImageUrl(props.src)
   if (!src) return { html: '' }
 
   const media = (props._resolvedMediaByKey as Record<string, RenderResolvedMedia> | undefined)?.src
@@ -428,7 +429,7 @@ The publisher emits a `<script type="importmap">` entry. `getMissingModuleDepend
   - `src/modules/base/video/youtube.ts` — `parseYoutubeId()`, `youtubeEmbedUrl()` (per-module shared leaf)
   - `src/modules/base/utils/htmlTag.ts` — `resolveHtmlTag`, `htmlTagControl`, `customHtmlTagControl`, `VOID_HTML_ELEMENTS`
   - `src/modules/base/utils/mediaAttrs.ts` — `buildMediaSrcset`, `pickMediaVariantUrl`
-  - `src/modules/base/utils/escape.ts` — `escapeHtml`, `safeUrl`, `buildStyle`
+  - `src/modules/base/utils/escape.ts` — `escapeHtml`, `safeUrl`, `safeImageUrl`, `buildStyle`
 - Regression tests:
   - `src/__tests__/base-modules-shared-render.test.ts` — shared-leaf helper contracts + golden publisher render bytes
   - `src/__tests__/base-modules-shared-render.editor.test.tsx` — canvas component parity with publisher helpers

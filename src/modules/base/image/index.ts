@@ -22,7 +22,7 @@ import type { RenderResolvedMedia } from '@core/publisher'
 import { Value } from '@core/utils/typeboxHelpers'
 import { registry } from '@core/module-engine'
 import { ImageSolidIcon } from 'pixel-art-icons/icons/image-solid'
-import { escapeHtml, safeUrl } from '@modules/base/utils/escape'
+import { escapeHtml, safeImageUrl } from '@modules/base/utils/escape'
 import {
   htmlAttributesAttr,
   htmlAttributesControl,
@@ -173,7 +173,9 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
   htmlTag: 'img',
 
   render: (props) => {
-    const src = safeUrl(props.src)
+    // Image attribute: a `data:image/…` placeholder is legitimate here and
+    // nowhere else (see safeImageUrl).
+    const src = safeImageUrl(props.src)
     if (!src) return { html: '' }
     const htmlAttrs = htmlAttributesAttr(props.htmlAttributes)
 

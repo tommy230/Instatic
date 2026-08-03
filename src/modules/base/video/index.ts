@@ -28,7 +28,7 @@ import type { ModuleDefinition, RenderOutput, CspSourceRequirement } from '@core
 import type { RenderResolvedMedia } from '@core/publisher'
 import { Value } from '@core/utils/typeboxHelpers'
 import { VideoSolidIcon } from 'pixel-art-icons/icons/video-solid'
-import { safeUrl } from '@modules/base/utils/escape'
+import { safeImageUrl, safeUrl } from '@modules/base/utils/escape'
 import { buildMediaSrcset, pickMediaVariantUrl } from '@modules/base/utils/mediaAttrs'
 import { VideoEditor } from './VideoEditor'
 import { parseYoutubeId, youtubeEmbedUrl } from './youtube'
@@ -142,7 +142,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     // at the rendered size. Falls back to the raw publicPath if no
     // variant ladder is available yet.
     const posterSrc = pickMediaVariantUrl(posterMedia, videoMedia?.width ?? null)
-      ?? safeUrl(String(props.poster ?? ''))
+      ?? safeImageUrl(String(props.poster ?? ''))
 
     const width = videoMedia?.width ?? null
     const height = videoMedia?.height ?? null
@@ -230,10 +230,10 @@ function renderYoutube(input: YoutubeRenderInput): RenderOutput {
   const posterTargetWidth = input.posterMedia?.width ?? 1280
   const posterSrc =
     pickMediaVariantUrl(input.posterMedia, posterTargetWidth)
-    ?? safeUrl(input.posterUrl)
+    ?? safeImageUrl(input.posterUrl)
 
   if (!posterSrc) {
-    // Poster prop set but URL didn't survive safeUrl — fall back to
+    // Poster prop set but URL didn't survive safeImageUrl — fall back to
     // bare iframe rather than emitting an `<img src>` we can't trust.
     return { html: iframeHtml, cspSources: YOUTUBE_CSP_SOURCES }
   }
