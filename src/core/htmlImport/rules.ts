@@ -43,6 +43,63 @@ function hasElementChild(el: Element): boolean {
   return el.children.length > 0
 }
 
+// Spelled numerically so this module needs no `Node` global.
+const TEXT_NODE = 3
+
+/**
+ * Plain <br> children are content, not structure. base.text already stores
+ * hard breaks as newlines and publishes them back as <br>, so keeping these
+ * elements as a single text module preserves the DOM while restoring direct
+ * canvas selection and inline editing. Attributed <br> elements still recurse
+ * so their classes/attributes are not lost. Inside `<pre>`, this path is
+ * disabled so the walker preserves verbatim text nodes and structural breaks.
+ */
+function hasOnlyPlainLineBreakChildren(el: Element): boolean {
+  if (el.closest('pre')) return false
+  const children = Array.from(el.children)
+  return children.length > 0 && children.every(
+    (child) => child.tagName.toLowerCase() === 'br' && child.attributes.length === 0,
+  )
+}
+
+/**
+ * Split a `<br>`-separated element into its lines, keeping the whitespace that
+ * sits either side of each break.
+ *
+ * Trimming every line looks harmless — a space before a line break renders as
+ * nothing — but it is only invisible while the break itself renders. Themes
+ * that hide `br` are common (`br{display:none}`), and then the source's own
+ * whitespace beside the tag is the only thing separating adjacent words.
+ *
+ * So only the element's outer edges are trimmed. Interior whitespace collapses
+ * to a single space and stays where the source put it, which reproduces the
+ * source in both cases: with `br` visible the browser drops a space adjacent to
+ * a forced break anyway, and with `br` hidden the space is what renders.
+ * The editor's `innerText` read collapses kept interior whitespace on first
+ * edit, so this fidelity is import-then-publish, not import-then-edit.
+ */
+function importedTextWithHardBreaks(el: Element): string {
+  const lines: string[] = []
+  let line = ''
+  for (const child of Array.from(el.childNodes)) {
+    if (child.nodeType === TEXT_NODE) {
+      line += child.textContent ?? ''
+      continue
+    }
+    lines.push(line.replace(/\s+/g, ' '))
+    line = ''
+  }
+  lines.push(line.replace(/\s+/g, ' '))
+
+  lines[0] = lines[0].replace(/^ +/, '')
+  lines[lines.length - 1] = lines[lines.length - 1].replace(/ +$/, '')
+  return lines.join('\n')
+}
+
+function shouldRecurseTextElement(el: Element): boolean {
+  return hasElementChild(el) && !hasOnlyPlainLineBreakChildren(el)
+}
+
 const TEXT_INPUT_TYPES = [
   'text',
   'email',
@@ -160,21 +217,24 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
   // Props: `text` + `tag`.
   {
     match: 'h1, h2, h3, h4, h5, h6, p, span, small, strong, em',
-    // Leaf when it holds only text → base.text. But when it WRAPS element
-    // children (`<h2>Get the<br>file-based</h2>`, `<span><span>k</span><span>v</span></span>`)
-    // recurse to a container so the nested structure + line breaks survive
-    // instead of being flattened into one merged string.
+    // Plain <br> children become hard newlines in a single editable text
+    // module. Other element children still recurse to preserve mixed markup.
     map: (el) =>
-      hasElementChild(el)
+      shouldRecurseTextElement(el)
         ? {
             moduleId: 'base.container',
             props: { tag: 'custom', customTag: el.tagName.toLowerCase() },
           }
         : {
             moduleId: 'base.text',
-            props: { text: normalizeImportedText(el.textContent ?? ''), tag: el.tagName.toLowerCase() },
+            props: {
+              text: hasOnlyPlainLineBreakChildren(el)
+                ? importedTextWithHardBreaks(el)
+                : normalizeImportedText(el.textContent ?? ''),
+              tag: el.tagName.toLowerCase(),
+            },
           },
-    recurse: hasElementChild,
+    recurse: shouldRecurseTextElement,
   },
 
   // Forms and form controls → first-class form modules. Imported third-party

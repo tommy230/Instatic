@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'bun:test'
 import '@modules/base'
 import { importHtml } from '@core/htmlImport'
+import { escapeProps } from '@core/publisher'
 import { TextModule } from '@modules/base/text'
 
 function childrenOf(html: string) {
@@ -20,16 +21,33 @@ function childrenOf(html: string) {
   return { root, kids: root.children.map((id) => r.nodes[id]!) }
 }
 
-describe('<br> inside a heading is preserved', () => {
-  it('heading with <br> recurses and keeps the break + both text halves', () => {
-    const { root, kids } = childrenOf('<h2>Get the<br/>file-based CMS.</h2>')
+describe('<br> inside text is preserved as an editable hard break', () => {
+  it('heading with plain <br> stays one text module with a newline', () => {
+    const r = importHtml('<h2>Get the<br/>file-based CMS.</h2>')
+    const root = r.nodes[r.rootIds[0]!]!
+    expect(root.moduleId).toBe('base.text')
+    expect(root.props.tag).toBe('h2')
+    expect(root.props.text).toBe('Get the\nfile-based CMS.')
+    const escapedProps = escapeProps(root.props, TextModule.schema)
+    expect(TextModule.render(escapedProps, []).html).toBe('<h2>Get the<br>file-based CMS.</h2>')
+  })
+
+  it('paragraph with repeated plain <br> keeps blank lines in one text module', () => {
+    const r = importHtml('<p>One<br><br>Three</p>')
+    const root = r.nodes[r.rootIds[0]!]!
+    expect(root.moduleId).toBe('base.text')
+    expect(root.props.tag).toBe('p')
+    expect(root.props.text).toBe('One\n\nThree')
+  })
+
+  it('attributed <br> still recurses so its metadata survives', () => {
+    const { root, kids } = childrenOf('<h2>Get the<br class="accent">file-based CMS.</h2>')
     expect(root.moduleId).toBe('base.container')
-    expect(root.props.customTag).toBe('h2')
-    const tags = kids.map((k) => k.props.customTag ?? k.moduleId)
-    expect(tags).toContain('br') // the line break survives as a node
+    const lineBreak = kids.find((kid) => kid.props.customTag === 'br')
+    expect(lineBreak?.classIds).toContain('accent')
     const texts = kids
-      .filter((k) => k.moduleId === 'base.text' && k.props.tag === 'none')
-      .map((k) => k.props.text)
+      .filter((kid) => kid.moduleId === 'base.text' && kid.props.tag === 'none')
+      .map((kid) => kid.props.text)
     expect(texts).toContain('Get the')
     expect(texts).toContain('file-based CMS.')
   })
@@ -53,6 +71,18 @@ describe('nested phrasing spans are preserved (not flattened)', () => {
 })
 
 describe('<pre> preserves significant whitespace', () => {
+  it('keeps a nested text element and its plain break structural', () => {
+    const r = importHtml('<pre><span>a&nbsp;&nbsp;b<br>c</span></pre>')
+    const pre = r.nodes[r.rootIds[0]!]!
+    const span = r.nodes[pre.children[0]!]!
+    const kids = span.children.map((id) => r.nodes[id]!)
+
+    expect(span.moduleId).toBe('base.container')
+    expect(kids[0]?.props.text).toBe('a\u00a0\u00a0b')
+    expect(kids[1]?.props.customTag).toBe('br')
+    expect(kids[2]?.props.text).toBe('c')
+  })
+
   it('keeps newlines between lines of a code block', () => {
     const r = importHtml('<pre><code><span>line one</span>\n<span>line two</span></code></pre>')
     const newlineNode = Object.values(r.nodes).find(

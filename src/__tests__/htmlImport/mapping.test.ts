@@ -135,6 +135,13 @@ describe('base.text — paragraph and inline phrasing', () => {
     expect(node.props.text).toBe('Hello paragraph')
   })
 
+  it('p with plain line breaks → one editable base.text with newlines', () => {
+    const node = single('<p>First line<br>Second line<br>Third line</p>')
+    expect(node.moduleId).toBe('base.text')
+    expect(node.props.tag).toBe('p')
+    expect(node.props.text).toBe('First line\nSecond line\nThird line')
+  })
+
   it('span → tag "span"', () => {
     const node = single('<span>Inline text</span>')
     expect(node.moduleId).toBe('base.text')
