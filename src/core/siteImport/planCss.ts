@@ -22,17 +22,18 @@ import type { ImportColorToken, ImportFontToken, ImportWarning } from './types'
 
 /**
  * Accumulators threaded through every `parseCssSourceIntoPlan` call of one
- * `buildImportPlan` run. Maps dedupe across sources (first occurrence wins,
- * matching the source cascade order the caller iterates in).
+ * `buildImportPlan` run. Conditions dedupe across sources with the first
+ * occurrence winning. Colour and font tokens take the last definition across
+ * sources, matching the CSS cascade.
  */
 export interface CssPlanState {
   warnings: ImportWarning[]
   droppedAtRules: string[]
   /** Reusable conditions discovered across all CSS sources, deduped by id. */
   conditionsById: Map<string, ConditionDef>
-  /** Colour tokens pulled from root-scope rules, deduped by slug. */
+  /** Colour tokens pulled from root-scope rules, keyed by slug; last definition wins. */
   colorsBySlug: Map<string, ImportColorToken>
-  /** Font tokens pulled from root-scope rules, deduped by normalized variable. */
+  /** Font tokens keyed by normalized variable; last definition wins. */
   fontTokensByVariable: Map<string, ImportFontToken>
   cssFileResults: CssFileResult[]
 }
@@ -83,13 +84,24 @@ export function parseCssSourceIntoPlan(
     if (w.kind === 'dropped-at-rule' && w.source) state.droppedAtRules.push(w.source)
   }
 
+  // Last definition wins, because that is what the cascade does.
+  //
+  // These tokens are hoisted out of `:root` blocks, and the same custom property
+  // is routinely declared twice: a plugin stylesheet ships a default and the
+  // site overrides it in a later inline `<style>`.
+  //
+  // Sources reach here in cascade order (linked sheets first, the page's inline
+  // block appended last - see buildPlan), so overwriting is exactly the CSS rule.
+  // Across pages there is no shared cascade: inline blocks are appended in page
+  // order, so the last page's token wins site-wide.
+  // Root-scope extraction ignores specificity differences among `:root`, `html`, and `body`.
   const { rules: rulesAfterColors, colorTokens } = extractRootColorTokens(rules)
   for (const token of colorTokens) {
-    if (!state.colorsBySlug.has(token.slug)) state.colorsBySlug.set(token.slug, token)
+    state.colorsBySlug.set(token.slug, token)
   }
   const { rules: rulesAfterFontTokens, fontTokens } = extractRootFontTokens(rulesAfterColors)
   for (const token of fontTokens) {
-    if (!state.fontTokensByVariable.has(token.variable)) state.fontTokensByVariable.set(token.variable, token)
+    state.fontTokensByVariable.set(token.variable, token)
   }
 
   state.cssFileResults.push({ cssPath, rules: rulesAfterFontTokens, assetRefs, fontFaces })
