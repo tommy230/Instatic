@@ -216,7 +216,7 @@ interface ImportScript {
 | `.foo { … }` | `StyleRule{ kind:'class', name:'foo', selector:'.foo' }` |
 | `.hero .title`, `.group:hover .group-hover\:block` | One bindable class rule per selector-list alternative. The rightmost decoded class is `name`; the full selector is preserved. Selector dependency classes (`hero`, `group`) receive bare picker entries when they have no rule of their own. |
 | `h1`, `body`, `a:hover` | `StyleRule{ kind:'ambient', selector: verbatim }` |
-| `@media ... { … }` | Merged into a matching viewport context's `contextStyles` when it matches a configured media query (or an older/default max-width threshold); otherwise preserved as a reusable media condition |
+| `@media ... { … }` | Merged into a viewport context's `contextStyles` only when its condition text is that viewport's configured query; near misses stay reusable media conditions so query text and order among custom conditions survive, trading breakpoint editability for source fidelity. Large legacy stylesheets can therefore grow the conditions list because every distinct near-miss query is retained instead of folded away. |
 | Unconditional local `@import "file.css"` | Followed recursively from the linked stylesheet; the imported file keeps its own source path so relative `url(...)` assets resolve correctly |
 | Trusted Google CSS2 `@import` | Parsed into `ImportGoogleFont` install requests and committed as self-hosted installed font entries |
 | `@keyframes` | Stored as a supported ambient raw CSS rule and emitted globally by the publisher after its raw-keyframes safety gate |
@@ -237,6 +237,8 @@ Every top-level linked stylesheet imports in one of two user-selectable modes (`
 A multi-page site typically links one stylesheet per page, and those stylesheets routinely use the same class name (`.btn`, `.hero`) with different declarations. The CMS has a single global style rule registry, so a naïve merge would let one page's class clobber another's.
 
 `detectCrossSheetClassConflicts` (`classCascades.ts`) compares the effective class definitions produced by each page's ordered linked CSS cascade (fragments merged in source order, not isolated files):
+
+Because `contextOrder` participates in definition comparison, two stylesheets with otherwise identical class declarations but differently ordered `@media` blocks are divergent definitions and trigger the same cross-sheet auto-rename; that order changes the emitted CSS.
 
 - **One distinct definition** across all cascades → no conflict; the class is shared. Repeated fragments stay in cascade order (see normalization below).
 - **N distinct definitions** → the first keeps the bare name; each later distinct definition becomes one `CrossSheetClassConflict` row in the wizard's Conflicts step ("Stylesheets disagree"), default `auto-rename` to the next free suffix (free among imported AND existing site class names). Nothing is renamed silently.

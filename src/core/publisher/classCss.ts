@@ -265,11 +265,11 @@ export function bagToReactStyle(
  * by *context id*. A context id is either a viewport-context id (from
  * `breakpoints`) or a custom-condition id (from `conditions`).
  *
- * Cascade order (precedence Q-A): base → custom conditions (registry order) →
- * viewport @media contexts. Pure max-width contexts emit widest first so the
- * narrowest matching query wins. Pure min-width contexts emit narrowest first
- * so the widest matching query wins. Mixed/custom viewport queries keep the
- * user's registry order.
+ * Cascade order (precedence Q-A): base → custom conditions (declared order,
+ * falling back to registry order) → viewport @media contexts. Pure max-width
+ * contexts emit widest first so the narrowest matching query wins. Pure
+ * min-width contexts emit narrowest first so the widest matching query wins.
+ * Mixed/custom viewport queries keep the user's registry order.
  */
 export interface ViewportContext {
   id: string
@@ -317,15 +317,18 @@ export function compareViewportContextCascade(
  * (registry CSS and forced-state previews) — so the cascade can never drift
  * between what the editor shows and what a publish ships.
  *
- * Cascade order (precedence Q-A): base → custom conditions (registry order) →
- * viewport @media contexts (see `compareViewportContextCascade`). Context keys
- * matching neither registry are skipped (orphaned overrides).
+ * Cascade order (precedence Q-A): base → custom conditions (declared order,
+ * falling back to registry order) → viewport @media contexts (see
+ * `compareViewportContextCascade`). Context keys matching neither registry are
+ * skipped (orphaned overrides).
  */
 export interface StyleRuleDeclarationLayers {
   styles: Record<string, unknown>
   stylePriorities?: CSSDeclarationPriorityBag
   contextStyles?: Record<string, Record<string, unknown>>
   contextStylePriorities?: Record<string, CSSDeclarationPriorityBag>
+  /** Context ids in this rule's declared source order. */
+  contextOrder?: string[]
 }
 
 export type StyleRuleCssEmitter = (
@@ -381,7 +384,21 @@ export function createStyleRuleCssEmitter(
 
     // Custom conditions emit AFTER base but BEFORE viewport contexts, so
     // viewport-specific overrides keep winning when both contexts match.
-    conditionEntries.sort((a, b) => a.index - b.index)
+    // Imported rules use their own declaration order. Editor-authored rules
+    // without that data keep stable condition-registry order; unlisted contexts
+    // sort after listed contexts.
+    const declaredOrder = layers.contextOrder
+    if (declaredOrder && declaredOrder.length > 0) {
+      const positionOf = new Map(declaredOrder.map((id, index) => [id, index]))
+      const unlisted = declaredOrder.length
+      conditionEntries.sort((a, b) => {
+        const aPos = positionOf.get(a.contextId) ?? unlisted + a.index
+        const bPos = positionOf.get(b.contextId) ?? unlisted + b.index
+        return aPos - bPos
+      })
+    } else {
+      conditionEntries.sort((a, b) => a.index - b.index)
+    }
     for (const { contextId, bag, condition } of conditionEntries) {
       const decls = bagToCSS(bag, options, layers.contextStylePriorities?.[contextId])
       if (!decls) continue

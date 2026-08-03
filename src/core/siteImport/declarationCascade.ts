@@ -11,6 +11,7 @@ export interface CascadedStyleRuleLayers {
   stylePriorities: CSSDeclarationPriorityBag
   contextStyles: Record<string, Record<string, unknown>>
   contextStylePriorities: Record<string, CSSDeclarationPriorityBag>
+  contextOrder: string[]
 }
 
 export function createCascadedStyleRuleLayers(): CascadedStyleRuleLayers {
@@ -19,6 +20,7 @@ export function createCascadedStyleRuleLayers(): CascadedStyleRuleLayers {
     stylePriorities: {},
     contextStyles: {},
     contextStylePriorities: {},
+    contextOrder: [],
   }
 }
 
@@ -52,7 +54,21 @@ export function mergeStyleRuleCascade(
     { styles: target.styles, priorities: target.stylePriorities },
     { styles: incoming.styles, priorities: incoming.stylePriorities ?? {} },
   )
-  for (const [contextId, styles] of Object.entries(incoming.contextStyles ?? {})) {
+  const incomingContextStyles = incoming.contextStyles ?? {}
+  const incomingDeclaredOrder = incoming.contextOrder ?? []
+  const incomingDeclaredIds = new Set(incomingDeclaredOrder)
+  const incomingContextOrder = [...new Set([
+    ...incomingDeclaredOrder,
+    ...Object.keys(incomingContextStyles).filter((id) => !incomingDeclaredIds.has(id)),
+  ])]
+  const targetContextIds = new Set(target.contextOrder)
+  for (const contextId of incomingContextOrder) {
+    const styles = incomingContextStyles[contextId]
+    if (!styles) continue
+    if (!targetContextIds.has(contextId)) {
+      target.contextOrder.push(contextId)
+      targetContextIds.add(contextId)
+    }
     if (!target.contextStyles[contextId]) target.contextStyles[contextId] = {}
     if (!target.contextStylePriorities[contextId]) target.contextStylePriorities[contextId] = {}
     mergeDeclarationCascade(
@@ -102,7 +118,14 @@ export function mergeRuleContextDeclarations(
   const styles = rule.contextStyles[contextId] ?? {}
   const priorities = { ...(rule.contextStylePriorities?.[contextId] ?? {}) }
   mergeDeclarationCascade({ styles, priorities }, incoming)
+  const isNewContext = rule.contextStyles[contextId] === undefined
   rule.contextStyles[contextId] = styles
+
+  // Registry order is global first-seen order. Record when this rule first met
+  // each context so equal-specificity overrides retain their source order.
+  if (isNewContext) {
+    rule.contextOrder = [...(rule.contextOrder ?? []), contextId]
+  }
 
   const sparse = sparsePriorities(priorities)
   if (sparse) {

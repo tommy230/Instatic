@@ -116,8 +116,10 @@ export interface ImportWarning {
 /**
  * A hint that maps a named viewport context to its CSS media query and pixel
  * frame width. Passed to `cssToStyleRules` so @media queries can be matched to
- * existing site viewport contexts by configured query first, then by
- * max-width threshold (±mediaTolerance) for older/default contexts.
+ * existing site viewport contexts. Matching is by query text only: a block
+ * whose query is not the context's own query is kept verbatim as a custom
+ * condition, preserving its text and its order relative to other custom
+ * conditions.
  */
 export interface BreakpointHint {
   /** Viewport context identifier, matching a context key used in `StyleRule.contextStyles`. */

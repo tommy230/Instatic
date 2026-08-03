@@ -141,14 +141,17 @@ describe('cssToStyleRules — @media → contextStyles (matched)', () => {
     expect(warnings).toHaveLength(0)
   })
 
-  it('@media within tolerance is matched', () => {
+  // Near-miss folding rewrites the query and moves breakpoint contexts after
+  // custom conditions, which can invert a later, narrower override.
+  it('@media near a breakpoint width is kept verbatim, not snapped to it', () => {
     const css = '.foo { color: red }\n@media (max-width: 768px) { .foo { color: blue } }'
-    const { rules, warnings } = cssToStyleRules(css, {
+    const { rules, warnings, conditions } = cssToStyleRules(css, {
       breakpoints: [{ id: 'tablet', width: 780 }],
-      mediaTolerance: 15,
     })
     expect(rules).toHaveLength(1)
-    expect(rules[0].contextStyles.tablet).toMatchObject({ color: 'blue' })
+    expect(rules[0].contextStyles.tablet).toBeUndefined()
+    expect(conditions).toHaveLength(1)
+    expect(conditions[0].condition).toMatchObject({ kind: 'media', query: '(max-width: 768px)' })
     expect(warnings).toHaveLength(0)
   })
 

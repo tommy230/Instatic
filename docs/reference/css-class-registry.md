@@ -43,6 +43,7 @@ interface StyleRule {
   stylePriorities?:        Record<string, 'important'>
   contextStyles:           Record<string, Record<string, unknown>>
   contextStylePriorities?: Record<string, Record<string, 'important'>>
+  contextOrder?:            string[]                    // first declaration order for this rule's contexts
   rawCss?:                 string                     // supported raw at-rule CSS, currently imported @keyframes
   generated?:              GeneratedClassMetadata    // framework-generated flags
   createdAt?:              number
@@ -54,6 +55,8 @@ interface StyleRule {
 
 - a **viewport context id** (from `site.breakpoints`) → the publisher emits the context's configured `@media` query; **or**
 - a **custom condition id** (from `site.conditions`, the reusable `@media`/`@container`/`@supports` registry) → the publisher emits that condition's `@`-prelude.
+
+`contextOrder` optionally records the first declaration order of those context ids for an imported rule. Merging rule fragments keeps the surviving order and appends only newly contributed ids in each incoming fragment's own order. Rules without this metadata use condition registry order.
 
 `parseStyleRule` reads only the current `contextStyles` shape. Obsolete per-rule context fields are ignored rather than migrated.
 
@@ -192,7 +195,9 @@ For each rule in registry (sorted by order):
     emit: '${prelude} { ${selector} { ${bagToCSS(bag, options, priorities)} } }'
 ```
 
-Cascade order within a rule: base → custom conditions (registry order) → viewport contexts. Pure max-width contexts emit widest first so narrower queries win; pure min-width contexts emit narrowest first so wider queries win; mixed/custom viewport queries keep registry order.
+Cascade order within a rule: base → custom conditions (declared `contextOrder` when present, condition registry order otherwise) → viewport contexts. Pure max-width contexts emit widest first so narrower queries win; pure min-width contexts emit narrowest first so wider queries win; mixed/custom viewport queries keep registry order.
+
+Two source-order limitations remain. First, a rule mixing a folded viewport block with custom-condition blocks still emits every custom condition before every viewport context, so a source that places an exact breakpoint query before a narrower custom query can invert those blocks. Exact-query-only folding makes this much rarer than tolerant near-match folding, but it remains reachable. Second, `contextOrder` records a context's first occurrence; later declarations for that same context merge last-wins into the original block position. This can misorder equal-specificity ties against browser source order, and fixing it requires unmerged per-context blocks rather than one declaration bag per context.
 
 The compiled string is part of the per-page CSS bundle (see [docs/features/publisher.md](../features/publisher.md) → CSS pipeline).
 

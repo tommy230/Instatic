@@ -403,6 +403,21 @@ describe('generateClassCSS — custom conditions (unified contextStyles)', () =>
     expect(container).toBeLessThan(breakpoint)
   })
 
+  it('falls back to condition registry order when contextOrder is absent', () => {
+    const first = makeConditionDef({ kind: 'media', query: '(orientation: portrait)' })
+    const second = makeConditionDef({ kind: 'media', query: '(orientation: landscape)' })
+    const rule = makeClass('foo', {}, {
+      [second.id]: { color: 'blue' },
+      [first.id]: { color: 'red' },
+    })
+
+    const css = generateClassCSS({ foo: rule }, [], [first, second])
+
+    expect(css.indexOf('(orientation: portrait)')).toBeLessThan(
+      css.indexOf('(orientation: landscape)'),
+    )
+  })
+
   it('does not double-wrap a supports query that already has parens', () => {
     const rule = makeClass('foo', {}, { [supportsCond.id]: { gap: '8px' } })
     const css = generateClassCSS({ foo: rule }, [], [supportsCond])

@@ -40,6 +40,24 @@ describe('parseStyleRule — contextStyles', () => {
     })
   })
 
+  it('round-trips contextOrder, keeps absence, and drops stale or duplicate ids', () => {
+    const contextOrder = ['media:(max-width: 800px)', 'media:(max-width: 640px)']
+    const serialized = JSON.parse(JSON.stringify(baseRaw({
+      contextStyles: {
+        'media:(max-width: 800px)': { maxHeight: '300px' },
+        'media:(max-width: 640px)': { maxHeight: '150px' },
+      },
+      contextOrder,
+    })))
+
+    expect(parseStyleRule(serialized)?.contextOrder).toEqual(contextOrder)
+    expect(parseStyleRule(baseRaw())?.contextOrder).toBeUndefined()
+    expect(parseStyleRule(baseRaw({
+      contextStyles: { tablet: { color: 'blue' } },
+      contextOrder: ['orphan', 'tablet', 'tablet'],
+    }))?.contextOrder).toEqual(['tablet'])
+  })
+
   it('ignores obsolete breakpointStyles', () => {
     const rule = parseStyleRule(baseRaw({ breakpointStyles: { tablet: { fontSize: '14px' } } }))
     expect(rule!.contextStyles).toEqual({})

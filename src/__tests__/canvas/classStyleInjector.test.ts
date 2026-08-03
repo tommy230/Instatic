@@ -6,7 +6,7 @@ import {
   generateForcedStateCSS,
 } from '@site/canvas/canvasClassCss'
 import { generateFrameworkColorUtilityClasses } from '@core/framework'
-import { classKindSelector, type StyleRule } from '@core/page-tree'
+import { classKindSelector, makeConditionDef, type StyleRule } from '@core/page-tree'
 import type { RenderResolvedMedia } from '@core/publisher'
 
 function makeClass(
@@ -434,6 +434,22 @@ describe('generateForcedStateCSS', () => {
     expect(css).toContain('@media (min-width: 375px)')
     expect(css).toContain('color: blue')
     expect(css).toMatch(/@media[^{]*\{\s*\[data-node-id="node-1"\]\[data-node-id="node-1"\]/)
+  })
+
+  it('uses the rule contextOrder for custom conditions in forced-state previews', () => {
+    const first = makeConditionDef({ kind: 'media', query: '(orientation: portrait)' })
+    const second = makeConditionDef({ kind: 'media', query: '(orientation: landscape)' })
+    const rule = hoverRule({}, {
+      [first.id]: { color: 'red' },
+      [second.id]: { color: 'blue' },
+    })
+    rule.contextOrder = [second.id, first.id]
+
+    const css = generateForcedStateCSS('node-1', rule, [], [first, second])
+
+    expect(css.indexOf('(orientation: landscape)')).toBeLessThan(
+      css.indexOf('(orientation: portrait)'),
+    )
   })
 
   it('overlays an in-flight edit into the context it targets', () => {

@@ -280,6 +280,7 @@ export function generateForcedStateCSS(
     stylePriorities: rule.stylePriorities,
     contextStyles,
     contextStylePriorities: rule.contextStylePriorities,
+    contextOrder: rule.contextOrder,
   }).join('\n\n')
 }
 

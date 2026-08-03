@@ -50,7 +50,6 @@ export function createCssPlanState(): CssPlanState {
 
 export interface ParseCssSourceOptions {
   breakpoints: Array<{ id: string; width: number; mediaQuery?: string }>
-  mediaTolerance: number
   /** Harvests Google-font `@import` requests before they are stripped. */
   collectGoogleFonts: (cssSource: string) => void
 }
@@ -73,7 +72,6 @@ export function parseCssSourceIntoPlan(
   const cssForStyleRules = stripGoogleFontImportRules(cssSource)
   const { rules, warnings, assetRefs, conditions, fontFaces } = cssToStyleRules(cssForStyleRules, {
     breakpoints: options.breakpoints,
-    mediaTolerance: options.mediaTolerance,
   })
   state.warnings.push(...warnings)
   for (const def of conditions) {

@@ -119,6 +119,12 @@ export const StyleRuleSchema = Type.Object({
   ),
   /** Sparse context id -> declaration-priority metadata. */
   contextStylePriorities: Type.Optional(Type.Record(Type.String(), CSSDeclarationPriorityBagSchema)),
+  /**
+   * Context ids in the order this rule first declared their overrides.
+   * Optional rules without imported source-order data fall back to condition
+   * registry order. Stale ids are dropped by `parseStyleRule`.
+   */
+  contextOrder: Type.Optional(Type.Array(Type.String())),
   /** Sanitised raw CSS for supported stylesheet-level rules such as @keyframes. */
   rawCss: Type.Optional(Type.String()),
   /** Optional search/filter tags. Invalid items silently dropped — handled in parseStyleRule. */
@@ -213,6 +219,23 @@ function parseStyleRuleScope(raw: unknown): StyleRule['scope'] {
   return { type: 'node', nodeId: s.nodeId, role: 'module-style' }
 }
 
+/** Source order of a rule's context overrides, filtered to the ones it has. */
+function parseContextOrder(
+  raw: unknown,
+  contextStyles: Record<string, Record<string, unknown>>,
+): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  const order: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string' || seen.has(entry)) continue
+    if (!Object.hasOwn(contextStyles, entry)) continue
+    seen.add(entry)
+    order.push(entry)
+  }
+  return order.length > 0 ? order : undefined
+}
+
 /**
  * Parse a StyleRule, dropping entries that are missing the current selector
  * metadata and providing fallbacks only for resilient style-bag fields.
@@ -232,6 +255,7 @@ export function parseStyleRule(raw: unknown): StyleRule | null {
   const contextStyles = parseContextStyles(r)
   const stylePriorities = parsePriorityBag(r.stylePriorities, styles)
   const contextStylePriorities = parseContextStylePriorities(r.contextStylePriorities, contextStyles)
+  const contextOrder = parseContextOrder(r.contextOrder, contextStyles)
   const generated = compiledCheck(GeneratedClassMetadataSchema, r.generated)
     ? (r.generated as StyleRule['generated'])
     : undefined
@@ -248,6 +272,7 @@ export function parseStyleRule(raw: unknown): StyleRule | null {
     ...(stylePriorities !== undefined ? { stylePriorities } : {}),
     contextStyles,
     ...(contextStylePriorities !== undefined ? { contextStylePriorities } : {}),
+    ...(contextOrder !== undefined ? { contextOrder } : {}),
     ...(typeof r.rawCss === 'string' && r.rawCss.trim() ? { rawCss: r.rawCss } : {}),
     ...(tags !== undefined ? { tags } : {}),
     ...(generated !== undefined ? { generated } : {}),

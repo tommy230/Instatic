@@ -349,6 +349,7 @@ function materialiseRenamedClass(
       ...(sparseContextPriorities(merged.contextStylePriorities)
         ? { contextStylePriorities: sparseContextPriorities(merged.contextStylePriorities) }
         : {}),
+      ...(merged.contextOrder.length > 0 ? { contextOrder: merged.contextOrder } : {}),
     })
     styleRuleSources.push(conflict.sources[0] ?? affectedCascadePaths[0] ?? '')
   }

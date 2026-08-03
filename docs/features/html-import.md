@@ -219,7 +219,7 @@ The importer preserves CSS across two layers, both gated by `isEmittableProperty
 - **`<style>` blocks** → parsed by the consumer (`cssToStyleRules`) into registry `StyleRule`s shown in the Selectors panel. A `.foo {}` rule binds to nodes carrying `class="foo"`; complex class-bearing selectors preserve their selector and expose a decoded picker class (for example `.group:hover .group-hover\:block` exposes `group-hover:block`); class-free selectors (`body`, `a:hover`) register as ambient. First-wins on name/selector collisions with existing rules.
 - **Class names without a matching `<style>` rule** still survive — `insertImportedNodes` auto-creates a bare (style-less) class for the name (see [Class linking](#class-linking-name--id)), styleable afterwards in the editor or by the agent.
 
-`importHtml` itself stays CSS-agnostic: it returns raw `styleCss` and the consumer (which has the site's breakpoints and may import `@core/siteImport`) does the parsing. This avoids an `htmlImport → siteImport` import cycle and lets `@media` fold into the site's real breakpoints.
+`importHtml` itself stays CSS-agnostic: it returns raw `styleCss` and the consumer (which has the site's breakpoints and may import `@core/siteImport`) does the parsing. This avoids an `htmlImport → siteImport` import cycle. An `@media` block folds into a real breakpoint only when its condition text is that breakpoint's configured query; near misses remain custom conditions so their query text and order relative to other custom conditions stay intact.
 
 ---
 

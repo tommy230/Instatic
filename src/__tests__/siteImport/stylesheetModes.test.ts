@@ -38,6 +38,27 @@ function twoPageFileMap(cssA: string, cssB: string): FileMap {
   }
 }
 
+function layeredConflictFileMap(cssA: string, cssB: string): FileMap {
+  const pageHtml = (links: string) => `<!doctype html><html><head>${links}</head><body>
+    <a class="btn" href="#">Buy</a>
+  </body></html>`
+  const link = (href: string) => `<link rel="stylesheet" href="${href}">`
+  return {
+    files: {
+      'index.html': {
+        bytes: encoder.encode(pageHtml(link('css/a.css'))),
+        mimeType: 'text/html',
+      },
+      'original.html': {
+        bytes: encoder.encode(pageHtml(`${link('css/a.css')}${link('css/b.css')}`)),
+        mimeType: 'text/html',
+      },
+      'css/a.css': { bytes: encoder.encode(cssA), mimeType: 'text/css' },
+      'css/b.css': { bytes: encoder.encode(cssB), mimeType: 'text/css' },
+    },
+  }
+}
+
 function resolveWithDefaults(plan: ImportPlan): ImportPlan {
   return applyConflictResolutions(
     plan,
@@ -136,6 +157,26 @@ describe('cross-sheet class conflicts', () => {
     )
     expect(renamed?.styles.color).toBe('blue')
     expect(renamed?.stylePriorities).toEqual({ color: 'important' })
+  })
+
+  it('preserves first-seen context order when materialising a renamed multi-sheet definition', () => {
+    const plan = buildImportPlan({
+      fileMap: layeredConflictFileMap(
+        '.btn { color: red; } @media (max-width: 1000px) { .btn { padding: 10px; } }',
+        '.btn { color: blue; } @media (orientation: landscape) { .btn { padding: 20px; } } @media (max-width: 700px) { .btn { padding: 30px; } }',
+      ),
+      currentSite: makeEmptySiteDocument(),
+    })
+    const resolved = resolveWithDefaults(plan)
+    const renamed = resolved.styleRules.find(
+      (rule) => rule.kind === 'class' && rule.name === 'btn-2',
+    )
+
+    expect(renamed?.contextOrder).toEqual([
+      'media:(max-width: 1000px)',
+      'media:(orientation: landscape)',
+      'media:(max-width: 700px)',
+    ])
   })
 
   it('keep-first (skip) drops the divergent definition and binds its pages to the first', () => {

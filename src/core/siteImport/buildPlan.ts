@@ -42,8 +42,6 @@ interface BuildImportPlanInput {
   fileMap: FileMap
   currentSite: SiteDocument
   options?: {
-    /** Tolerance in px for matching older @media max-width queries by frame width. Default: 10. */
-    mediaTolerance?: number
     /**
      * Per-stylesheet import mode, keyed by the top-level linked CSS path
      * (FileMap key). Unlisted paths convert to editable style rules.
@@ -59,7 +57,6 @@ interface BuildImportPlanInput {
  * wizard so the user can preview what will be imported and resolve conflicts.
  */
 export function buildImportPlan({ fileMap, currentSite, options }: BuildImportPlanInput): ImportPlan {
-  const mediaTolerance = options?.mediaTolerance ?? 10
   const warnings: ImportWarning[] = []
   const droppedAtRules: string[] = []
 
@@ -122,7 +119,6 @@ export function buildImportPlan({ fileMap, currentSite, options }: BuildImportPl
   const cssPlan = createCssPlanState()
   const parseOptions = {
     breakpoints: currentSite.breakpoints.map((bp) => ({ id: bp.id, width: bp.width, mediaQuery: bp.mediaQuery })),
-    mediaTolerance,
     collectGoogleFonts,
   }
   for (const cssPath of orderedCssPaths) {
