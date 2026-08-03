@@ -21,6 +21,8 @@ import { describe, it, expect } from 'bun:test'
 import '@modules/base'
 import type { PageNode } from '@core/page-tree'
 import { importHtml, walkAndMap, parseHtml, stripUnsafe } from '@core/htmlImport'
+import { escapeProps } from '@core/publisher'
+import { TextModule } from '@modules/base/text'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -473,20 +475,19 @@ describe('base.container — <ul> and <ol> (builtin tags)', () => {
     }
   })
 
-  it('<li> children become base.container with tag:"custom", customTag:"li"', () => {
+  it('text-only <li> children become base.text with semantic tag "li"', () => {
     const result = imported('<ul><li>First</li></ul>')
     const ulId = result.rootIds[0]!
     const ulNode = result.nodes[ulId]!
     const liId = ulNode.children[0]!
     const liNode = result.nodes[liId]!
 
-    // <li> is not in BUILTIN_HTML_TAGS → catch-all: tag:'custom', customTag:'li'
-    expect(liNode.moduleId).toBe('base.container')
-    expect(liNode.props.tag).toBe('custom')
-    expect(liNode.props.customTag).toBe('li')
+    expect(liNode.moduleId).toBe('base.text')
+    expect(liNode.props.tag).toBe('li')
+    expect(liNode.props.text).toBe('First')
   })
 
-  it('<ol> children are correct — li uses tag:"custom"', () => {
+  it('<ol> text-only children use editable semantic list items', () => {
     const result = imported('<ol><li>A</li><li>B</li><li>C</li></ol>')
     const olId = result.rootIds[0]!
     const olNode = result.nodes[olId]!
@@ -494,8 +495,8 @@ describe('base.container — <ul> and <ol> (builtin tags)', () => {
 
     for (const childId of olNode.children) {
       const child = result.nodes[childId]!
-      expect(child.props.tag).toBe('custom')
-      expect(child.props.customTag).toBe('li')
+      expect(child.moduleId).toBe('base.text')
+      expect(child.props.tag).toBe('li')
     }
   })
 })
@@ -602,12 +603,13 @@ describe('base.container — custom tag (NOT in BUILTIN_HTML_TAGS)', () => {
     expect(captionNode.props.customTag).toBe('figcaption')
   })
 
-  it('<li> → base.container tag:"custom", customTag:"li"', () => {
-    // li is not in BUILTIN_HTML_TAGS — only reachable via catch-all (or from ul/ol)
+  it('text-only <li> → base.text tag:"li"', () => {
     const node = single('<li>Item</li>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('li')
+    expect(node.moduleId).toBe('base.text')
+    expect(node.props.tag).toBe('li')
+    expect(node.props.text).toBe('Item')
+    const escapedProps = escapeProps(node.props, TextModule.schema)
+    expect(TextModule.render(escapedProps, []).html).toBe('<li>Item</li>')
   })
 })
 
@@ -1043,9 +1045,8 @@ describe('nested structure — parent/child IDs in document order', () => {
 
     for (const childId of ulNode.children) {
       const liNode = result.nodes[childId]!
-      expect(liNode.moduleId).toBe('base.container')
-      expect(liNode.props.tag).toBe('custom')
-      expect(liNode.props.customTag).toBe('li')
+      expect(liNode.moduleId).toBe('base.text')
+      expect(liNode.props.tag).toBe('li')
     }
   })
 
@@ -1129,13 +1130,23 @@ describe('direct text in containers → synthesized no-wrapper base.text', () =>
     expect(textNode.props.text).toBe('98%')
   })
 
-  it('text-only <li> → container with a no-wrapper text child (no longer empty)', () => {
+  it('text-only <li> → directly editable semantic text node', () => {
     const result = imported('<ul><li>Buy milk</li></ul>')
     const ulNode = result.nodes[result.rootIds[0]!]!
     const liNode = result.nodes[ulNode.children[0]!]!
+    expect(liNode.moduleId).toBe('base.text')
+    expect(liNode.props.tag).toBe('li')
+    expect(liNode.props.text).toBe('Buy milk')
+    expect(liNode.children).toHaveLength(0)
+  })
+
+  it('list item with nested markup → recursing semantic container', () => {
+    const result = imported('<ul><li>Buy <strong>milk</strong></li></ul>')
+    const ulNode = result.nodes[result.rootIds[0]!]!
+    const liNode = result.nodes[ulNode.children[0]!]!
+    expect(liNode.moduleId).toBe('base.container')
     expect(liNode.props.customTag).toBe('li')
-    expect(liNode.children).toHaveLength(1)
-    expect(result.nodes[liNode.children[0]!]!.props.text).toBe('Buy milk')
+    expect(liNode.children).toHaveLength(2)
   })
 
   it('mixed content → text and element children interleaved in document order', () => {

@@ -20,6 +20,7 @@ type TextTag =
   | 'small'
   | 'strong'
   | 'em'
+  | 'li'
 
 const TEXT_TAGS = new Set<TextTag>([
   'none',
@@ -35,6 +36,7 @@ const TEXT_TAGS = new Set<TextTag>([
   'small',
   'strong',
   'em',
+  'li',
 ])
 
 export function normalizeTag(tag: unknown): TextTag {

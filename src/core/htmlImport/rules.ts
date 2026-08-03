@@ -436,6 +436,27 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
     },
   },
 
+  // A text-only list item is a semantic text leaf so the editor can attach
+  // selection and inline-editing controls to the actual <li>. List items with
+  // nested markup remain containers and recurse to preserve that structure.
+  {
+    match: 'li',
+    map: (el) =>
+      hasElementChild(el)
+        ? {
+            moduleId: 'base.container',
+            props: { tag: 'custom', customTag: 'li' },
+          }
+        : {
+            moduleId: 'base.text',
+            props: {
+              text: normalizeImportedText(el.textContent ?? ''),
+              tag: 'li',
+            },
+          },
+    recurse: hasElementChild,
+  },
+
   // ul / ol are BUILTIN_HTML_TAGS for base.container → container + RECURSE.
   {
     match: 'ul, ol',
