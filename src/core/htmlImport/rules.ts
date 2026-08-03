@@ -20,6 +20,7 @@
 
 import { normalizeImportedText } from './text'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
+import { trustedVideoEmbed } from '@core/media/trustedVideoEmbed'
 
 export interface ImportRule {
   /** CSS selector tested via `el.matches()`. */
@@ -475,7 +476,7 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
     // recurse intentionally omitted — void elements must remain childless.
   },
 
-  // YouTube iframes and native <video> elements → base.video (LEAF).
+  // Trusted player iframes and native <video> elements → base.video (LEAF).
   //
   // NOTE on layering: src/core/ MUST NOT import from src/modules/. The
   // canonical YouTube URL parser lives in src/modules/base/video/youtube.ts
@@ -484,18 +485,20 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
   // base.video's render() re-parses the stored videoUrl at publish time.
   //
   // `<iframe src="https://www.youtube.com/embed/ID">` → base.video
-  // `<iframe src="https://player.vimeo.com/...">` → base.container fallback
+  // Other trusted providers share the strict core allowlist used by base.video.
   // `<video src="clip.mp4" controls>` → base.video
   // `<video><source src="clip.mp4"></video>` → base.video (videoUrl from <source>)
 
   // Inline YouTube host check — the canonical parser (parseYoutubeId) lives in
   // src/modules/base/video/youtube.ts; layering rules forbid importing it here.
-  // This minimal variant only needs to distinguish "YouTube" from "not YouTube"
-  // so non-YouTube iframes still fall back to base.container.
+  // This minimal variant only needs to distinguish YouTube; the shared trusted
+  // provider helper handles Vimeo and Cloudflare Stream.
   {
     match: 'iframe',
     map: (el) => {
-      const src = attr(el, 'src')
+      // Normalize entity text left by double-encoded source markup at the
+      // import boundary.
+      const src = attr(el, 'src').replaceAll('&amp;', '&')
       let isYoutube = false
       if (src) {
         try {
@@ -506,9 +509,9 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
         }
       }
 
-      if (!isYoutube) {
-        // Non-YouTube iframes (Vimeo, maps, forms, arbitrary embeds) fall back
-        // to base.container so their src/attributes are preserved via htmlAttributes.
+      const trustedEmbed = trustedVideoEmbed(src)
+      if (!isYoutube && !trustedEmbed) {
+        // Maps, forms, and arbitrary embeds stay non-executable.
         return { moduleId: 'base.container', props: { tag: 'custom', customTag: 'iframe' } }
       }
 
@@ -523,11 +526,24 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
         // ignore malformed src
       }
 
+      const trustedEmbedProps = trustedEmbed
+        ? {
+            ...(attr(el, 'width') ? { embedWidth: attr(el, 'width') } : {}),
+            ...(attr(el, 'height') ? { embedHeight: attr(el, 'height') } : {}),
+            ...(attr(el, 'allow') ? { iframeAllow: attr(el, 'allow') } : {}),
+            ...(attr(el, 'referrerpolicy')
+              ? { iframeReferrerPolicy: attr(el, 'referrerpolicy') }
+              : {}),
+            allowFullscreen: el.hasAttribute('allowfullscreen'),
+          }
+        : {}
+
       return {
         moduleId: 'base.video',
         props: {
           videoUrl: src,
           ...(attr(el, 'title') ? { title: attr(el, 'title') } : {}),
+          ...trustedEmbedProps,
           ...(noRelatedVideos ? { noRelatedVideos: true } : {}),
           ...(playsinline ? { playsinline: true } : {}),
         },

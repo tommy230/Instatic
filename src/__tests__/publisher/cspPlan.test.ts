@@ -221,6 +221,22 @@ describe('publishPage — CSP frame-src from module cspSources', () => {
     expect(csp).not.toContain('youtube')
   })
 
+  it('page with a trusted Vimeo video emits its iframe and permits the player origin', () => {
+    const page = makePage({
+      root: {
+        moduleId: 'base.video',
+        props: { videoUrl: 'https://player.vimeo.com/video/123456789?dnt=1' },
+      },
+    })
+    const reg = makeRegistry({ 'base.video': VideoModule as AnyModuleDefinition })
+    const { html } = publishPage(page, makeSite(), reg)
+    const csp = extractPublishedCsp(html)
+    expect(html).toContain('<iframe')
+    expect(html).toContain('player.vimeo.com/video/123456789')
+    expect(csp).toContain('frame-src https://player.vimeo.com')
+    expect(csp).not.toContain("frame-src 'none'")
+  })
+
   it('youtube sources are sorted deterministically across repeated builds', () => {
     const page = makePage({
       root: {

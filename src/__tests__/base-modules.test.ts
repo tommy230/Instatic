@@ -16,6 +16,7 @@ import { describe, it, expect } from 'bun:test'
 import { existsSync } from 'fs'
 import React from 'react'
 import { render as renderReact } from '@testing-library/react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import './matchers'  // Register toBeCleanHTML
 
 import { runModuleConformanceSuite, renderModule, withBannedGlobals } from './helpers'
@@ -999,6 +1000,101 @@ describe('base.video — render() specifics', () => {
     expect(html).toMatch(/<iframe/)
   })
 
+  it('renders a trusted Vimeo iframe without converting it to a video element', () => {
+    const out = renderModule(VideoModule, {
+      videoUrl: 'https://PLAYER.VIMEO.COM/video/123456789?autoplay=0&dnt=1#preview',
+      title: 'Product overview',
+      embedWidth: '800',
+      embedHeight: '450',
+      iframeAllow: 'autoplay; fullscreen; picture-in-picture',
+      iframeReferrerPolicy: 'strict-origin-when-cross-origin',
+      allowFullscreen: true,
+    })
+    expect(out.html).toContain('<iframe')
+    expect(out.html).toContain(
+      'src="https://player.vimeo.com/video/123456789?autoplay=0&amp;dnt=1#preview"',
+    )
+    expect(out.html).not.toContain('PLAYER.VIMEO.COM')
+    expect(out.html).toContain('width="800"')
+    expect(out.html).toContain('height="450"')
+    expect(out.html).toContain('allowfullscreen')
+    expect(out.html).not.toContain('<video')
+    expect(out.cspSources).toContainEqual({
+      directive: 'frame-src',
+      sources: ['https://player.vimeo.com'],
+    })
+    expect(
+      typeof VideoModule.htmlTag === 'function'
+        ? VideoModule.htmlTag({
+            ...VideoModule.defaults,
+            videoUrl: 'https://player.vimeo.com/video/123456789',
+            poster: '/uploads/poster.webp',
+          })
+        : VideoModule.htmlTag,
+    ).toBe('iframe')
+  })
+
+  it('does not trust a lookalike Vimeo hostname', () => {
+    const { html } = renderModule(VideoModule, {
+      videoUrl: 'https://player.vimeo.com.evil.example/video/123456789',
+    })
+    expect(html).not.toContain('<iframe')
+  })
+
+  it('renders only trusted provider URLs as iframes in VideoEditor', () => {
+    const renderEditor = (videoUrl: string, props: Record<string, unknown> = {}) => renderToStaticMarkup(
+      React.createElement(VideoModule.component, {
+        props: { ...VideoModule.defaults, videoUrl, ...props },
+        nodeId: 'video-node',
+        isSelected: false,
+        mcClassName: 'video-preview',
+        nodeWrapperProps: { 'data-node-id': 'video-node' },
+      } as never),
+    )
+
+    const trusted = renderEditor('https://player.vimeo.com/video/123456789')
+    expect(trusted).toContain('<iframe')
+    expect(trusted).toContain('src="https://player.vimeo.com/video/123456789"')
+
+    const gated = renderEditor('https://player.vimeo.com/video/123456789', {
+      iframeAllow: 'camera; autoplay; microphone; fullscreen',
+      iframeReferrerPolicy: 'not-a-policy',
+    })
+    expect(gated).toContain('allow="autoplay; fullscreen"')
+    expect(gated).not.toContain('camera')
+    expect(gated).not.toContain('microphone')
+    expect(gated.toLowerCase()).not.toContain('referrerpolicy=')
+
+    const untrusted = renderEditor('https://player.vimeo.com.evil.example/video/123456789')
+    expect(untrusted).not.toContain('<iframe')
+    expect(untrusted).toContain('<video')
+  })
+
+  it('allowlists trusted iframe capabilities in published markup', () => {
+    const { html } = renderModule(VideoModule, {
+      videoUrl: 'https://player.vimeo.com/video/123456789',
+      iframeAllow:
+        'camera; autoplay; microphone; encrypted-media; geolocation; payment; fullscreen; picture-in-picture; clipboard-write',
+    })
+
+    expect(html).toContain(
+      'allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write"',
+    )
+    expect(html).not.toContain('camera')
+    expect(html).not.toContain('microphone')
+    expect(html).not.toContain('geolocation')
+    expect(html).not.toContain('payment')
+  })
+
+  it('omits allow when no trusted iframe capability survives', () => {
+    const { html } = renderModule(VideoModule, {
+      videoUrl: 'https://player.vimeo.com/video/123456789',
+      iframeAllow: 'camera; microphone; geolocation; payment',
+    })
+
+    expect(html).not.toContain(' allow=')
+  })
+
   it('wraps the YouTube iframe in a poster facade when a poster is set', () => {
     const { html, css } = renderModule(VideoModule, {
       videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -1108,11 +1204,17 @@ describe('base.video — render() specifics', () => {
     expect(html).not.toContain('title="YouTube video"')
   })
 
-  it('title prop defaults to "YouTube video" when not set', () => {
-    const { html } = renderModule(VideoModule, {
+  it('uses provider-specific fallback titles when title is not set', () => {
+    const { html: youtubeHtml } = renderModule(VideoModule, {
       videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     })
-    expect(html).toContain('title="YouTube video"')
+    const { html: trustedHtml } = renderModule(VideoModule, {
+      videoUrl: 'https://player.vimeo.com/video/123456789',
+    })
+
+    expect(VideoModule.defaults.title).toBe('')
+    expect(youtubeHtml).toContain('title="YouTube video"')
+    expect(trustedHtml).toContain('title="Video"')
   })
 
   // --- noRelatedVideos prop ---

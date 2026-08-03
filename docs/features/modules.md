@@ -43,7 +43,7 @@ src/modules/base/
 ├── link/                — base.link (content.ts — children/text fallback leaf)
 ├── image/               — base.image
 ├── svg/                 — base.svg (inline sanitized SVG)
-├── video/               — base.video (youtube.ts — ID parse + embed URL leaf)
+├── video/               — base.video (YouTube plus trusted Vimeo and Cloudflare Stream players)
 ├── list/                — base.list (items.ts — textarea item-splitting leaf)
 ├── loop/                — base.loop
 ├── forms/               — base.form and form-control primitives
@@ -345,6 +345,22 @@ export const HeadingEditor: React.FC<ModuleComponentProps<HeadingProps>> = ({
 Modules with a `component` must produce HTML that **matches** what `render()` would produce — the canvas selection geometry, drop-target detection, and dimension measurements assume parity. The mechanism for enforcing this without code duplication is the **shared leaf pattern**: extract the pure decision logic (element choice, content fallback, text splitting, URL computation) into a sibling `.ts` file that both `render()` (in `index.ts`) and the canvas component (in `*Editor.tsx`) import. See [reference/module-engine.md](../reference/module-engine.md) → "Sharing logic".
 
 ---
+
+## Trusted video embeds
+
+`base.video` renders ordinary media-library paths and external media URLs as `<video>`. It renders an `<iframe>` only for these HTTPS player URL shapes:
+
+- `player.vimeo.com/video/<digits>`
+- `iframe.videodelivery.net/<id>`
+- `customer-<account>.cloudflarestream.com/<id>/iframe`
+
+The matcher rejects credentials, non-default ports, non-HTTPS URLs, lookalike hosts, and any other path. Hostnames are case-insensitive. Accepted URLs are parsed and normalized before the iframe `src` is emitted; query strings and fragments are retained.
+
+Imported trusted iframes preserve `embedWidth`, `embedHeight`, `iframeAllow`, `iframeReferrerPolicy`, and `allowFullscreen` on the video node. Width and height emit only when they contain digits, `iframeReferrerPolicy` emits only when it matches a standard referrer-policy token, and `iframeAllow` keeps only `autoplay`, `encrypted-media`, `fullscreen`, `picture-in-picture`, and `clipboard-write`. Untrusted iframes stay on the non-executable importer fallback.
+
+The `poster` setting applies to native video and YouTube; trusted Vimeo and Cloudflare Stream embeds ignore it.
+
+Every trusted player render returns a `frame-src` requirement through `cspSources`. The publisher adds only that player origin to the page CSP, so pages without a trusted embed retain `frame-src 'none'`.
 
 ## Module dependencies
 

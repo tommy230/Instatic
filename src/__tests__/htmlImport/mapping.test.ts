@@ -19,6 +19,7 @@ import { describe, it, expect } from 'bun:test'
 // Self-registers all base modules with the global registry singleton.
 // walkAndMap calls registry.getOrThrow(moduleId) — without this import it throws.
 import '@modules/base'
+import { registry } from '@core/module-engine'
 import type { PageNode } from '@core/page-tree'
 import { importHtml, walkAndMap, parseHtml, stripUnsafe } from '@core/htmlImport'
 
@@ -1366,20 +1367,61 @@ describe('base.video — <iframe> import mapping', () => {
 
   it('full-featured embed iframe → all mapped props', () => {
     const node = single(
-      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&playsinline=1" title="Full Demo"></iframe>',
+      '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&playsinline=1" title="Full Demo" width="800" height="450" allow="camera" referrerpolicy="origin"></iframe>',
     )
     expect(node.moduleId).toBe('base.video')
     expect(node.props.videoUrl).toBe('https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&playsinline=1')
     expect(node.props.title).toBe('Full Demo')
     expect(node.props.noRelatedVideos).toBe(true)
     expect(node.props.playsinline).toBe(true)
+    expect(node.props.embedWidth).toBe('')
+    expect(node.props.embedHeight).toBe('')
+    expect(node.props.iframeAllow).toBe('')
+    expect(node.props.iframeReferrerPolicy).toBe('')
   })
 
-  it('Vimeo iframe → falls back to base.container (not base.video)', () => {
-    const node = single('<iframe src="https://player.vimeo.com/video/123456789"></iframe>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('iframe')
+  it('trusted Vimeo iframe → base.video with its embed attributes preserved', () => {
+    const node = single(
+      '<iframe src="https://player.vimeo.com/video/123456789?dnt=1" title="Product overview" width="800" height="450" allow="autoplay; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>',
+    )
+    expect(node.moduleId).toBe('base.video')
+    expect(node.props).toMatchObject({
+      videoUrl: 'https://player.vimeo.com/video/123456789?dnt=1',
+      title: 'Product overview',
+      embedWidth: '800',
+      embedHeight: '450',
+      iframeAllow: 'autoplay; fullscreen',
+      iframeReferrerPolicy: 'strict-origin-when-cross-origin',
+      allowFullscreen: true,
+    })
+  })
+
+  it('trusted Cloudflare Stream iframe → base.video', () => {
+    const node = single(
+      '<iframe src="https://iframe.videodelivery.net/video_id-1"></iframe>',
+    )
+    expect(node.moduleId).toBe('base.video')
+    expect(node.props.videoUrl).toBe('https://iframe.videodelivery.net/video_id-1')
+  })
+
+  it('trusted iframe without allowfullscreen publishes without allowfullscreen', () => {
+    const node = single(
+      '<iframe src="https://player.vimeo.com/video/123456789"></iframe>',
+    )
+    const html = registry.getOrThrow('base.video').render(node.props as never, []).html
+
+    expect(node.props.allowFullscreen).toBe(false)
+    expect(html).not.toContain('allowfullscreen')
+  })
+
+  it('decodes double-encoded iframe query separators at the import boundary', () => {
+    const node = single(
+      '<iframe src="https://player.vimeo.com/video/123456789?dnt=1&amp;amp;autoplay=0"></iframe>',
+    )
+
+    expect(node.props.videoUrl).toBe(
+      'https://player.vimeo.com/video/123456789?dnt=1&autoplay=0',
+    )
   })
 
   it('Google Maps iframe → falls back to base.container', () => {
