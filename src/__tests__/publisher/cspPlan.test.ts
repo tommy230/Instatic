@@ -14,6 +14,8 @@ import {
   addCspSources,
   createBaseCspPlan,
   cspMetaTag,
+  cspDirectiveNames,
+  ensureSelfInFetchDirectives,
   parseCspContent,
   publishPage,
   serializeCsp,
@@ -221,6 +223,22 @@ describe('publishPage — CSP frame-src from module cspSources', () => {
     expect(csp).not.toContain('youtube')
   })
 
+  it('page with a trusted Vimeo video emits its iframe and permits the player origin', () => {
+    const page = makePage({
+      root: {
+        moduleId: 'base.video',
+        props: { videoUrl: 'https://player.vimeo.com/video/917233540?dnt=1' },
+      },
+    })
+    const reg = makeRegistry({ 'base.video': VideoModule as AnyModuleDefinition })
+    const { html } = publishPage(page, makeSite(), reg)
+    const csp = extractPublishedCsp(html)
+    expect(html).toContain('<iframe')
+    expect(html).toContain('player.vimeo.com/video/917233540')
+    expect(csp).toContain('frame-src https://player.vimeo.com')
+    expect(csp).not.toContain("frame-src 'none'")
+  })
+
   it('youtube sources are sorted deterministically across repeated builds', () => {
     const page = makePage({
       root: {
@@ -246,5 +264,63 @@ describe('publishPage — CSP frame-src from module cspSources', () => {
     const { html } = publishPage(page, makeSite(), reg)
     const csp = extractPublishedCsp(html)
     expect(csp).toContain('https://www.youtube-nocookie.com')
+  })
+})
+
+describe('ensureSelfInFetchDirectives', () => {
+  it("restores 'self' on a directive derived sources created", () => {
+    // lfrep.com: a derived `font-src ka-f.fontawesome.com` with no 'self'
+    // blocked the site's own self-hosted faces, document.fonts reported
+    // "error", and every headline fell back to a wide sans and wrapped.
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    const base = cspDirectiveNames(plan)
+    addCspSources(plan, 'font-src', ['https://ka-f.fontawesome.com'])
+
+    ensureSelfInFetchDirectives(plan, base)
+
+    expect(serializeCsp(plan)).toContain("font-src 'self' https://ka-f.fontawesome.com")
+  })
+
+  it('keeps the base sources it already had', () => {
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    const base = cspDirectiveNames(plan)
+    addCspSources(plan, 'img-src', ['https://cdn.example.com'])
+
+    ensureSelfInFetchDirectives(plan, base)
+
+    const policy = serializeCsp(plan)
+    expect(policy).toContain('data:')
+    expect(policy).toContain('https:')
+    expect(policy).toContain("'self'")
+  })
+
+  it("leaves a directive the base decided alone", () => {
+    // frame-src 'none' gaining an embed origin should permit that embed, not
+    // quietly reopen same-origin framing.
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    const base = cspDirectiveNames(plan)
+    addCspSources(plan, 'frame-src', ['https://player.vimeo.com'])
+
+    ensureSelfInFetchDirectives(plan, base)
+
+    expect(serializeCsp(plan)).toContain('frame-src https://player.vimeo.com')
+    expect(serializeCsp(plan)).not.toContain("frame-src 'self'")
+  })
+
+  it("leaves a deliberate 'none' closed", () => {
+    const plan = createBaseCspPlan({ anyScriptTag: false })
+    ensureSelfInFetchDirectives(plan, cspDirectiveNames(plan))
+
+    // No script tag on the page means script-src 'none' is intended.
+    expect(serializeCsp(plan)).toContain("script-src 'none'")
+    expect(serializeCsp(plan)).toContain("frame-src 'none'")
+  })
+
+  it('does not invent directives that were never present', () => {
+    const plan = createBaseCspPlan({ anyScriptTag: true })
+    ensureSelfInFetchDirectives(plan, cspDirectiveNames(plan))
+
+    expect(serializeCsp(plan)).not.toContain('font-src')
+    expect(serializeCsp(plan)).not.toContain('connect-src')
   })
 })

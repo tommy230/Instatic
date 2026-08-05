@@ -23,7 +23,7 @@ export const ButtonModule: ModuleDefinition<ButtonStoredProps> = {
   name: 'Button',
   description: 'A button or call-to-action link.',
   category: 'Interactive',
-  version: '2.0.0',
+  version: '2.1.0',
   icon: CursorClickSolidIcon,
   trusted: true,
   canHaveChildren: false,
@@ -31,6 +31,11 @@ export const ButtonModule: ModuleDefinition<ButtonStoredProps> = {
 
   schema: {
     label: { type: 'text', label: 'Label', placeholder: 'Button text...' },
+    icon: {
+      type: 'svg',
+      label: 'Icon (inline SVG)',
+      category: 'content',
+    },
     href: { type: 'url', label: 'Link URL' },
     target: {
       type: 'select',
@@ -55,15 +60,21 @@ export const ButtonModule: ModuleDefinition<ButtonStoredProps> = {
 
   render: (props) => {
     const label = String(props.label ?? '')
+    // `icon` is an `svg`-typed prop, so escapeProps has already run it through
+    // sanitizeSvg (DOMPurify SVG profile: no script, no foreignObject, no
+    // event handlers, no external hrefs). Emitting it raw is what makes the
+    // graphic render at all; escaping it would print `&lt;svg&gt;`.
+    const icon = String(props.icon ?? '').trim()
+    const content = icon ? `${icon}${label}` : label
     const attrs = htmlAttributesAttr(props.htmlAttributes)
     const anchor = resolveButtonAnchor(props.href)
     if (anchor) {
       const rel = anchorRel(props.target)
       const relAttr = rel ? ` rel="${rel}"` : ''
-      return { html: `<a${attrs} href="${anchor.href}" target="${String(props.target)}"${relAttr}>${label}</a>` }
+      return { html: `<a${attrs} href="${anchor.href}" target="${String(props.target)}"${relAttr}>${content}</a>` }
     }
     const disabledAttr = props.disabled ? ' disabled aria-disabled="true"' : ''
-    return { html: `<button${attrs} type="button"${disabledAttr}>${label}</button>` }
+    return { html: `<button${attrs} type="button"${disabledAttr}>${content}</button>` }
   },
 }
 

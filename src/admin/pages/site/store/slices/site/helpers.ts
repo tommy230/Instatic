@@ -24,7 +24,13 @@ import { collectDirtyFromSitePatches, mergeDirtyMarks } from './dirtyTracking'
 import type { EditorStore } from '@site/store/types'
 import { MAX_HISTORY } from './defaults'
 import { reconcileFrameworkClasses } from './framework/reconcile'
-import { indexStyleRulesByName, linkImportedClassNames } from './importLinking'
+import {
+  indexAmbientRuleIds,
+  indexStyleRulesByName,
+  linkImportedClassNames,
+  maxStyleRuleOrder,
+  type CascadeCursor,
+} from './importLinking'
 import { addImportedColorTokens, overwriteImportedColorTokens } from './importedColorTokens'
 import { addImportedFonts, addImportedFontTokens, addInstalledFontEntries, overwriteImportedFontTokens } from './importedFonts'
 import type { HistoryEntry, SiteMutationResult, SiteSliceHelpers, SiteSliceRecipe } from './types'
@@ -162,6 +168,7 @@ function applyImportedBodyAttributes(
   fragment: ImportFragment,
   site: SiteDocument,
   byName: Map<string, string>,
+  cascade?: CascadeCursor,
 ): void {
   const body = fragment.body
   if (!body) return
@@ -170,7 +177,7 @@ function applyImportedBodyAttributes(
     rootNode.props = { ...rootNode.props, ...body.props }
   }
   if (body.classIds?.length) {
-    rootNode.classIds = linkImportedClassNames(body.classIds, site.styleRules, byName)
+    rootNode.classIds = linkImportedClassNames(body.classIds, site.styleRules, byName, cascade)
   }
   if (body.inlineStyles && Object.keys(body.inlineStyles).length > 0) {
     rootNode.inlineStyles = body.inlineStyles
@@ -436,6 +443,12 @@ export function buildSiteHelpers(
       // `addPage(fragment with node.classIds:['btn'])` resolves to the same id.
       const byName = indexStyleRulesByName(site.styleRules)
 
+      // Both computed once, for the same reason: read per rule they are full
+      // scans of the rule registry, and the registry is a Mutative draft, so
+      // each scan drafts every rule it walks.
+      const cascade: CascadeCursor = { maxOrder: maxStyleRuleOrder(site.styleRules) }
+      const ambientBySelector = indexAmbientRuleIds(site.styleRules)
+
       const helpers: SiteImportTransaction = {
         addPage({ id: pageId, title, slug, nodeFragment }: { id?: string; title: string; slug: string; nodeFragment: ImportFragment }): string {
           // addPage creates a fresh base.body root, normalises the slug, and
@@ -445,12 +458,18 @@ export function buildSiteHelpers(
           // Honour a caller-supplied id so the importer can pre-mint page ids
           // and rewrite internal links to `cms:page:<id>` before committing.
           if (pageId) page.id = pageId
-          applyImportedBodyAttributes(page.nodes[page.rootNodeId]!, nodeFragment, site, byName)
+          applyImportedBodyAttributes(
+            page.nodes[page.rootNodeId]!,
+            nodeFragment,
+            site,
+            byName,
+            cascade,
+          )
           for (const [id, node] of Object.entries(nodeFragment.nodes)) {
             // `node.inlineStyles` rides along on the spread — first-class field.
             page.nodes[id] = {
               ...node,
-              classIds: linkImportedClassNames(node.classIds, site.styleRules, byName),
+              classIds: linkImportedClassNames(node.classIds, site.styleRules, byName, cascade),
             }
           }
           page.nodes[page.rootNodeId]!.children = [...nodeFragment.rootIds]
@@ -460,20 +479,48 @@ export function buildSiteHelpers(
         },
 
         addStyleRule(rule: NewStyleRule): string {
-          const id = nanoid()
           const now = Date.now()
-          // Append after every existing rule so imports don't disrupt the
-          // established cascade order.
-          let maxOrder = -1
-          for (const r of Object.values(site.styleRules)) {
-            if (typeof r.order === 'number' && r.order > maxOrder) maxOrder = r.order
+
+          // An ambient rule the site already carries under this selector is
+          // that rule arriving again, so it is replaced where it stands rather
+          // than appended beside itself. Without this a re-import adds every
+          // ambient rule a second time: AM King's registry went from 110k rules
+          // to 221,741 on one re-import, and 99.99% of the second import's
+          // ambient rules were already in the store.
+          //
+          // The index is built before the recipe runs and consumed in order, so
+          // a stylesheet that declares one selector several times still lands
+          // all of its fragments, each replacing its own counterpart. Class
+          // rules are not deduped here: their collisions are decided upstream,
+          // by the conflict resolutions the plan carries.
+          if (rule.kind !== 'class') {
+            const reusableIds = ambientBySelector.get(rule.selector)
+            const reusedId = reusableIds?.shift()
+            const reused = reusedId ? site.styleRules[reusedId] : undefined
+            if (reusedId && reused) {
+              site.styleRules[reusedId] = {
+                ...rule,
+                id: reusedId,
+                createdAt: reused.createdAt,
+                updatedAt: now,
+                order: reused.order,
+              }
+              didMutate = true
+              return reusedId
+            }
           }
+
+          const id = nanoid()
+          // Appended after every existing rule so imports don't disrupt the
+          // established cascade order. The high-water mark is carried across
+          // the recipe rather than recomputed per rule.
+          cascade.maxOrder += 1
           const newRule: StyleRule = {
             ...rule,
             id,
             createdAt: now,
             updatedAt: now,
-            order: maxOrder + 1,
+            order: cascade.maxOrder,
           }
           site.styleRules[id] = newRule
           // Register in byName so subsequent addPage calls referencing this
@@ -490,13 +537,13 @@ export function buildSiteHelpers(
           // Mint a fresh body root; wire fragment roots as its children.
           const rootNode = createNode('base.body')
           rootNode.children = [...nodeFragment.rootIds]
-          applyImportedBodyAttributes(rootNode, nodeFragment, site, byName)
+          applyImportedBodyAttributes(rootNode, nodeFragment, site, byName, cascade)
 
           const newNodes: Record<string, PageNode> = { [rootNode.id]: rootNode }
           for (const [id, node] of Object.entries(nodeFragment.nodes)) {
             newNodes[id] = {
               ...node,
-              classIds: linkImportedClassNames(node.classIds, site.styleRules, byName),
+              classIds: linkImportedClassNames(node.classIds, site.styleRules, byName, cascade),
             }
           }
 

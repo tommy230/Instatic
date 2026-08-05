@@ -43,7 +43,7 @@ import { guessMimeType, isImportUploadableMimeType } from './mimeTypes'
 // Props that may contain relative asset URLs in page nodes
 // ---------------------------------------------------------------------------
 
-const URL_BEARING_PROPS: ReadonlySet<string> = new Set(['src', 'href', 'srcset'])
+const URL_BEARING_PROPS: ReadonlySet<string> = new Set(['src', 'href', 'srcset', 'videoUrl'])
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -104,6 +104,19 @@ const FONT_FORMAT_RANK: Record<FontFileFormat, number> = {
 }
 
 /** Map a FileMap key's extension to a font format, or null if not a font. */
+/** A CSS `format(...)` hint mapped to a rankable font format. */
+function normalizeDeclaredFormat(declared: string | null): FontFileFormat | null {
+  if (!declared) return null
+  const value = declared.replace(/^["']|["']$/g, '').toLowerCase()
+  if (value === 'woff2') return 'woff2'
+  if (value === 'woff') return 'woff'
+  if (value === 'truetype' || value === 'ttf') return 'ttf'
+  if (value === 'opentype' || value === 'otf') return 'otf'
+  // embedded-opentype and svg are never chosen as best; they are not
+  // self-hostable formats this importer emits.
+  return null
+}
+
 function fontFormatForPath(path: string): FontFileFormat | null {
   const lower = path.split('?')[0].toLowerCase()
   if (lower.endsWith('.woff2')) return 'woff2'
@@ -255,6 +268,42 @@ function buildFontFamilies(
         if (!format) continue
         if (!best || FONT_FORMAT_RANK[format] < FONT_FORMAT_RANK[best.format]) {
           best = { src: fileMapKey, format }
+        }
+      }
+
+      // Nothing bundled. A face whose sources are absolute is not broken, it
+      // is hosted somewhere else on purpose: Typekit and Adobe Fonts license
+      // per domain and the kit follows the domain at cutover, so the absolute
+      // URL is the correct long-term reference and localizing it would breach
+      // the kit terms for no gain. Keep the face verbatim rather than dropping
+      // it — dropping is what left redrockscafe.com with 26 `rift` usages and
+      // no face to satisfy them, so every heading fell back to a wide sans.
+      let externalOrigin: string | null = null
+      if (!best) {
+        for (const [index, rawUrl] of face.srcUrls.entries()) {
+          if (!/^https:\/\//i.test(rawUrl)) continue
+          // Extensionless by design, so the declared format is the only
+          // statement of what the file is.
+          const declared = face.srcFormats?.[index] ?? null
+          const format = fontFormatForPath(rawUrl) ?? normalizeDeclaredFormat(declared)
+          if (!format) continue
+          if (!best || FONT_FORMAT_RANK[format] < FONT_FORMAT_RANK[best.format]) {
+            best = { src: rawUrl, format }
+          }
+        }
+        if (best) {
+          try {
+            externalOrigin = new URL(best.src).origin
+          } catch {
+            externalOrigin = null
+          }
+          // Still reported: an external face is a cutover dependency even when
+          // keeping it is the right call.
+          warnings.push({
+            kind: 'external-font',
+            message: `@font-face "${face.family}" (${face.variant}) is hosted externally — kept as an absolute reference to ${externalOrigin ?? 'its origin'}.`,
+            selector: face.family,
+          })
         }
       }
 
@@ -595,4 +644,3 @@ function replaceRawUrlInValue(value: string, rawUrl: string, fileMapKey: string)
   const re = new RegExp(`url\\(\\s*(['"]?)${escaped}\\1\\s*\\)`, 'g')
   return value.replace(re, `url('${fileMapKey}')`)
 }
-

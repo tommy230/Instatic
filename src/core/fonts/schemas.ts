@@ -66,17 +66,28 @@ const EXTENSION_FOR_FONT_FORMAT: Record<FontFileFormat, string> = {
  *   - Media-backed external: an `https://` URL — accepted ONLY when the file
  *     carries a `mediaAssetId`, proving it came from our media pipeline on a
  *     deployment whose storage adapter serves assets off an external host.
- *     Arbitrary `https://` font URLs (no `mediaAssetId`) are rejected so a
- *     corrupted site document can't make the publisher fetch a third-party CDN.
+ *   - Vendor-hosted external: an `https://` URL carrying `external: true`. Set
+ *     only by the site importer, for faces the source site served from a
+ *     vendor that licenses per domain and forbids rehosting (Adobe Typekit is
+ *     the case that forced this). Those files cannot be pulled into
+ *     `/uploads/`, so the choice is keep the absolute reference or ship a site
+ *     whose headings have no face at all.
+ *
+ * Any other `https://` font URL is rejected, so a corrupted site document — or
+ * a UI path that never sets either marker — can't make the publisher fetch an
+ * arbitrary third-party CDN.
  *
  * Always rejects traversal sequences and characters that could break out of a
  * CSS `url("...")` string or the surrounding `<style>` tag.
  */
-function isSafeFontSrc(path: string, mediaAssetId?: string): boolean {
+function isSafeFontSrc(path: string, mediaAssetId?: string, external?: boolean): boolean {
   if (!path || path.includes('..')) return false
   if (/["<>\\\s]/.test(path)) return false
   if (path.startsWith('/uploads/')) return true
-  if (path.startsWith('https://')) return mediaAssetId != null && mediaAssetId.length > 0
+  if (path.startsWith('https://')) {
+    if (external === true) return true
+    return mediaAssetId != null && mediaAssetId.length > 0
+  }
   return false
 }
 
@@ -96,6 +107,10 @@ function isSafeFontSrc(path: string, mediaAssetId?: string): boolean {
  * `mediaAssetId` is set for media-backed custom / imported fonts (so the entry
  * survives a storage-adapter migration and external URLs are trusted). Google
  * installs leave it unset.
+ *
+ * `external` is set only by the site importer, on a face the source site
+ * served from a vendor host we are not allowed to rehost (Typekit). It marks
+ * the `https://` `path` as deliberate rather than corrupt.
  */
 const FontFileSchema = Type.Object({
   variant: Type.String({ minLength: 1 }),
@@ -104,6 +119,7 @@ const FontFileSchema = Type.Object({
   format: FontFileFormatSchema,
   unicodeRange: Type.Optional(Type.String({ minLength: 1 })),
   mediaAssetId: Type.Optional(Type.String({ minLength: 1 })),
+  external: Type.Optional(Type.Boolean()),
 })
 
 export type FontFile = Static<typeof FontFileSchema>
@@ -136,7 +152,7 @@ function isSafeUnicodeRange(range: string): boolean {
 function checkFontFile(value: unknown): value is FontFile {
   if (!compiledCheck(FontFileSchema, value)) return false
   const file = value as FontFile
-  if (!isSafeFontSrc(file.path, file.mediaAssetId)) return false
+  if (!isSafeFontSrc(file.path, file.mediaAssetId, file.external)) return false
   if (!fontPathMatchesFormat(file)) return false
   if (file.unicodeRange != null && !isSafeUnicodeRange(file.unicodeRange)) {
     return false

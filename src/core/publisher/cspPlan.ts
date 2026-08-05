@@ -89,6 +89,58 @@ export function createBaseCspPlan(opts: {
 }
 
 /**
+ * Fetch directives that fall back to `default-src` when absent.
+ *
+ * The base policy sets `default-src 'self'` and names only some of these, so a
+ * directive a later channel creates from third-party origins alone silently
+ * revokes same-origin access for its resource type: present means default-src
+ * no longer applies. On lfrep.com a derived `font-src ka-f.fontawesome.com`
+ * blocked the site's own self-hosted Parnaso and Graphik faces, document.fonts
+ * reported status "error", and every headline fell back to a wide sans and
+ * wrapped at 270px.
+ */
+const SELF_FALLBACK_DIRECTIVES = new Set([
+  'connect-src',
+  'font-src',
+  'frame-src',
+  'img-src',
+  'manifest-src',
+  'media-src',
+  'object-src',
+  'script-src',
+  'style-src',
+  'worker-src',
+])
+
+/**
+ * Restore the same-origin access a newly-created directive would revoke.
+ *
+ * Only directives absent from `baseDirectives` are touched. A directive the
+ * base policy set deliberately is the author's decision and stays that way:
+ * `frame-src 'none'` gaining an embed origin should permit that embed, not
+ * quietly reopen same-origin framing. The bug being fixed is narrower than
+ * that — a directive that did not exist, created from third-party origins
+ * alone, revokes a same-origin access nobody chose to revoke.
+ */
+export function ensureSelfInFetchDirectives(
+  plan: CspPlan,
+  baseDirectives: ReadonlySet<string>,
+): void {
+  for (const [directive, sources] of plan.directives) {
+    if (baseDirectives.has(directive)) continue
+    if (!SELF_FALLBACK_DIRECTIVES.has(directive)) continue
+    if (sources.size === 0) continue
+    if (sources.size === 1 && sources.has("'none'")) continue
+    sources.add("'self'")
+  }
+}
+
+/** The directive names a plan currently carries, for the check above. */
+export function cspDirectiveNames(plan: CspPlan): Set<string> {
+  return new Set(plan.directives.keys())
+}
+
+/**
  * Parse a serialized policy (the `content="…"` value) back into a plan. Splits
  * on `;` for directives and on whitespace for the directive name + its sources.
  * No dynamic `RegExp` is built from the input, so an attacker-controlled

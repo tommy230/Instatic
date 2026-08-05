@@ -91,7 +91,7 @@ describe('buildAssetPlan — @font-face → custom font family', () => {
     expect(fonts[0].files[0].src).toBe('a.woff2')
   })
 
-  it('warns (external-font) and imports nothing when no src is bundled', () => {
+  it('keeps an absolute src verbatim, and still warns (external-font)', () => {
     const css = `@font-face { font-family: Acme; font-weight: 400; src: url('https://cdn.example.com/x.woff2') format('woff2'); }`
     const { fontFaces } = cssToStyleRules(css)
     const { fonts, warnings } = buildAssetPlan(
@@ -99,7 +99,11 @@ describe('buildAssetPlan — @font-face → custom font family', () => {
       [{ cssPath: 's.css', rules: [], assetRefs: [], fontFaces }],
       { files: {} },
     )
-    expect(fonts).toHaveLength(0)
+    // Adobe and Typekit license per domain and the kit follows the domain at
+    // cutover, so an absolute src is the correct long-term reference rather
+    // than a broken one. It is kept, and reported as a cutover dependency.
+    expect(fonts).toHaveLength(1)
+    expect(fonts[0]!.files[0]!.src).toBe('https://cdn.example.com/x.woff2')
     expect(warnings.some((w) => w.kind === 'external-font')).toBe(true)
   })
 })

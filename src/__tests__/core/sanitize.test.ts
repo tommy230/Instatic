@@ -264,3 +264,34 @@ describe('isRichtextPropKey()', () => {
     expect(isRichtextPropKey('RichText')).toBe(true)
   })
 })
+
+/**
+ * Same fixed-point requirement as `sanitizeSvg`: a removed element makes
+ * DOMPurify skip its later siblings for the rest of that pass. Measured before
+ * the fix: `<p><iframe></iframe><b onclick="alert(1)">hi</b></p>` came back with
+ * the `onclick` intact — a stored-XSS path into every published page.
+ */
+describe('sanitizeRichtext sanitises to a fixed point', () => {
+  it('strips a handler on a sibling that follows a removed element', () => {
+    const out = sanitizeRichtext('<p><iframe></iframe><b onclick="alert(1)">hi</b></p>')
+    expect(out).not.toContain('onclick')
+    expect(out).not.toContain('alert(')
+    expect(out).toContain('hi')
+  })
+
+  it('strips handlers and javascript: URLs after a removed <script>', () => {
+    const out = sanitizeRichtext(
+      '<div><script></script><span onmouseover="alert(2)">y</span><a href="javascript:alert(3)">z</a></div>',
+    )
+    expect(out).not.toContain('onmouseover')
+    expect(out).not.toContain('javascript:')
+    expect(out).not.toContain('alert(')
+    expect(out).toContain('y')
+    expect(out).toContain('z')
+  })
+
+  it('is idempotent — re-sanitising its own output changes nothing', () => {
+    const once = sanitizeRichtext('<p><iframe></iframe><b onclick="alert(1)">hi</b></p>')
+    expect(sanitizeRichtext(once)).toBe(once)
+  })
+})

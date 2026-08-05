@@ -20,6 +20,7 @@
 
 import { normalizeImportedText } from './text'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
+import { trustedVideoEmbed } from '@core/media/trustedVideoEmbed'
 
 export interface ImportRule {
   /** CSS selector tested via `el.matches()`. */
@@ -41,6 +42,88 @@ export interface ImportRule {
 /** True when the element has at least one element (non-text) child. */
 function hasElementChild(el: Element): boolean {
   return el.children.length > 0
+}
+
+/**
+ * Markup of the first inline `<svg>` inside `el`, or '' when there is none.
+ *
+ * base.button is a LEAF module: it maps `<button>` to a `label` string and
+ * recurses into nothing. Real consent bars, search fields and CTAs put a small
+ * `<svg stroke="currentColor">` inside the button, and that subtree used to be
+ * discarded outright — the gear icon on the consent widget's Customize button
+ * disappeared on every imported site. The markup is captured verbatim here and
+ * lands on the module's `svg`-typed `icon` prop, which sanitises it at the
+ * publisher boundary (`escapeProps` → `sanitizeSvg`, the DOMPurify SVG
+ * profile) exactly like base.svg's own prop.
+ */
+function inlineIconMarkup(el: Element): string {
+  const svg = el.querySelector('svg')
+  return svg ? svg.outerHTML : ''
+}
+
+/**
+ * Whether an element's children are STRUCTURE rather than a label and an icon.
+ *
+ * The leaf mapping carries exactly two things across: the element's text, and
+ * one inline `<svg>` on the `icon` prop. That is all of
+ * `<button><svg/>Customize</button>`, so an svg-only button stays a leaf.
+ * Anything else is a layout the author built, and flattening it deletes every
+ * element and class inside except the first svg — see the button rule below.
+ */
+function hasStructuralChild(el: Element): boolean {
+  return Array.from(el.children).some((child) => child.tagName.toLowerCase() !== 'svg')
+}
+
+/**
+ * Plain <br> children are content, not structure. base.text already stores
+ * hard breaks as newlines and publishes them back as <br>, so keeping these
+ * elements as a single text module preserves the DOM while restoring direct
+ * canvas selection and inline editing. Attributed <br> elements still recurse
+ * so their classes/attributes are not lost.
+ */
+function hasOnlyPlainLineBreakChildren(el: Element): boolean {
+  const children = Array.from(el.children)
+  return children.length > 0 && children.every(
+    (child) => child.tagName.toLowerCase() === 'br' && child.attributes.length === 0,
+  )
+}
+
+/**
+ * Split a `<br>`-separated element into its lines, keeping the whitespace that
+ * sits either side of each break.
+ *
+ * Trimming every line looks harmless — a space before a line break renders as
+ * nothing — but it is only invisible while the break itself renders. Themes
+ * that hide `br` are common (this one does: `br{display:none}`), and then the
+ * source's own newline beside the tag is the ONLY thing separating the two
+ * words. redrockscafe.com published "Steakhousebest known" and "specials
+ * andspecial events" from markup that reads `Steakhouse<br>\nbest known`.
+ *
+ * So only the element's outer edges are trimmed. Interior whitespace collapses
+ * to a single space and stays where the source put it, which reproduces the
+ * source in both cases: with `br` visible the browser drops a space adjacent to
+ * a forced break anyway, and with `br` hidden the space is what renders.
+ */
+function importedTextWithHardBreaks(el: Element): string {
+  const lines: string[] = []
+  let line = ''
+  for (const child of Array.from(el.childNodes)) {
+    if (child.nodeType === 3) {
+      line += child.textContent ?? ''
+      continue
+    }
+    lines.push(line.replace(/\s+/g, ' '))
+    line = ''
+  }
+  lines.push(line.replace(/\s+/g, ' '))
+
+  lines[0] = lines[0].replace(/^ +/, '')
+  lines[lines.length - 1] = lines[lines.length - 1].replace(/ +$/, '')
+  return lines.join('\n')
+}
+
+function shouldRecurseTextElement(el: Element): boolean {
+  return hasElementChild(el) && !hasOnlyPlainLineBreakChildren(el)
 }
 
 const TEXT_INPUT_TYPES = [
@@ -150,21 +233,24 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
   // Props: `text` + `tag`.
   {
     match: 'h1, h2, h3, h4, h5, h6, p, span, small, strong, em',
-    // Leaf when it holds only text → base.text. But when it WRAPS element
-    // children (`<h2>Get the<br>file-based</h2>`, `<span><span>k</span><span>v</span></span>`)
-    // recurse to a container so the nested structure + line breaks survive
-    // instead of being flattened into one merged string.
+    // Plain <br> children become hard newlines in a single editable text
+    // module. Other element children still recurse to preserve mixed markup.
     map: (el) =>
-      hasElementChild(el)
+      shouldRecurseTextElement(el)
         ? {
             moduleId: 'base.container',
             props: { tag: 'custom', customTag: el.tagName.toLowerCase() },
           }
         : {
             moduleId: 'base.text',
-            props: { text: normalizeImportedText(el.textContent ?? ''), tag: el.tagName.toLowerCase() },
+            props: {
+              text: hasOnlyPlainLineBreakChildren(el)
+                ? importedTextWithHardBreaks(el)
+                : normalizeImportedText(el.textContent ?? ''),
+              tag: el.tagName.toLowerCase(),
+            },
           },
-    recurse: hasElementChild,
+    recurse: shouldRecurseTextElement,
   },
 
   // Forms and form controls → first-class form modules. Imported third-party
@@ -337,13 +423,15 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
   },
 
   // btn-classed anchors → base.button (prop `label`). LEAF — base.button
-  // cannot have children, so a btn wrapping an icon keeps only its label.
+  // cannot have children, so a btn wrapping an icon keeps its label plus, on
+  // the `icon` prop, the markup of its first inline `<svg>`.
   {
     match: 'a.btn',
     map: (el) => ({
       moduleId: 'base.button',
       props: {
         label: normalizeImportedText(el.textContent ?? ''),
+        icon: inlineIconMarkup(el),
         href: el.getAttribute('href') ?? '',
         target: el.getAttribute('target') ?? '_self',
       },
@@ -395,6 +483,14 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
   // Buttons → base.button or base.submit. A button without type submits only
   // when it is inside a form; outside forms it remains a regular base.button,
   // preserving the pre-existing HTML-import behavior for standalone buttons.
+  //
+  // A button carrying real STRUCTURE stays a container and recurses, the same
+  // way `label` and `li` below do. 890capital's FAQ accordion is the measured
+  // case: `<button class="oxel_accordion__row"><div class="ct-code-block
+  // oxel_accordion__icon"><svg style="width:100%"/></div><div>…</div></button>`.
+  // Flattened to a leaf, the 32px icon wrapper went with it and the
+  // `width:100%` svg had the 1264px flex row to fill instead — eight ~1000px
+  // plus signs down the page, 15607px published against 8505px live.
   {
     match: 'button',
     map: (el) => {
@@ -409,11 +505,43 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
           },
         }
       }
+      if (hasStructuralChild(el)) {
+        return {
+          moduleId: 'base.container',
+          props: { tag: 'custom', customTag: 'button' },
+        }
+      }
       return {
         moduleId: 'base.button',
-        props: { label: normalizeImportedText(el.textContent ?? ''), disabled: el.hasAttribute('disabled') },
+        props: {
+          label: normalizeImportedText(el.textContent ?? ''),
+          icon: inlineIconMarkup(el),
+          disabled: el.hasAttribute('disabled'),
+        },
       }
     },
+    recurse: (el) => hasStructuralChild(el),
+  },
+
+  // A text-only list item is a semantic text leaf so the editor can attach
+  // selection and inline-editing controls to the actual <li>. List items with
+  // nested markup remain containers and recurse to preserve that structure.
+  {
+    match: 'li',
+    map: (el) =>
+      hasElementChild(el)
+        ? {
+            moduleId: 'base.container',
+            props: { tag: 'custom', customTag: 'li' },
+          }
+        : {
+            moduleId: 'base.text',
+            props: {
+              text: normalizeImportedText(el.textContent ?? ''),
+              tag: 'li',
+            },
+          },
+    recurse: hasElementChild,
   },
 
   // ul / ol are BUILTIN_HTML_TAGS for base.container → container + RECURSE.
@@ -455,7 +583,8 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
     // recurse intentionally omitted — void elements must remain childless.
   },
 
-  // YouTube iframes and native <video> elements → base.video (LEAF).
+  // Allowlisted video-player iframes and native <video> elements →
+  // base.video (LEAF). Arbitrary iframes remain non-executable containers.
   //
   // NOTE on layering: src/core/ MUST NOT import from src/modules/. The
   // canonical YouTube URL parser lives in src/modules/base/video/youtube.ts
@@ -464,14 +593,13 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
   // base.video's render() re-parses the stored videoUrl at publish time.
   //
   // `<iframe src="https://www.youtube.com/embed/ID">` → base.video
-  // `<iframe src="https://player.vimeo.com/...">` → base.container fallback
+  // `<iframe src="https://player.vimeo.com/video/ID">` → base.video
   // `<video src="clip.mp4" controls>` → base.video
   // `<video><source src="clip.mp4"></video>` → base.video (videoUrl from <source>)
 
   // Inline YouTube host check — the canonical parser (parseYoutubeId) lives in
   // src/modules/base/video/youtube.ts; layering rules forbid importing it here.
-  // This minimal variant only needs to distinguish "YouTube" from "not YouTube"
-  // so non-YouTube iframes still fall back to base.container.
+  // Other trusted providers share the strict core allowlist used by base.video.
   {
     match: 'iframe',
     map: (el) => {
@@ -486,9 +614,9 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
         }
       }
 
-      if (!isYoutube) {
-        // Non-YouTube iframes (Vimeo, maps, forms, arbitrary embeds) fall back
-        // to base.container so their src/attributes are preserved via htmlAttributes.
+      const trustedEmbed = trustedVideoEmbed(src)
+      if (!isYoutube && !trustedEmbed) {
+        // Maps, forms, and arbitrary embeds stay non-executable.
         return { moduleId: 'base.container', props: { tag: 'custom', customTag: 'iframe' } }
       }
 
@@ -508,6 +636,13 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
         props: {
           videoUrl: src,
           ...(attr(el, 'title') ? { title: attr(el, 'title') } : {}),
+          ...(attr(el, 'width') ? { embedWidth: attr(el, 'width') } : {}),
+          ...(attr(el, 'height') ? { embedHeight: attr(el, 'height') } : {}),
+          ...(attr(el, 'allow') ? { iframeAllow: attr(el, 'allow') } : {}),
+          ...(attr(el, 'referrerpolicy')
+            ? { iframeReferrerPolicy: attr(el, 'referrerpolicy') }
+            : {}),
+          ...(el.hasAttribute('allowfullscreen') ? { allowFullscreen: true } : {}),
           ...(noRelatedVideos ? { noRelatedVideos: true } : {}),
           ...(playsinline ? { playsinline: true } : {}),
         },

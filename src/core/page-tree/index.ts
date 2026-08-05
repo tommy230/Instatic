@@ -46,7 +46,7 @@ export type {
   StyleRuleKind,
 } from './styleRule'
 export type { Condition, ConditionDef } from './condition'
-export type { SiteSettings } from './siteSettings'
+export type { SiteSettings, SiteCspSettings, ExtraHeadLink } from './siteSettings'
 export type { SiteShell, SiteDocument } from './siteDocument'
 export type {
   DecorativeSiteExplorerSectionId,

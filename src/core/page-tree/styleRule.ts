@@ -118,6 +118,19 @@ export const StyleRuleSchema = Type.Object({
   ),
   /** Sparse context id -> declaration-priority metadata. */
   contextStylePriorities: Type.Optional(Type.Record(Type.String(), CSSDeclarationPriorityBagSchema)),
+  /**
+   * The order this rule's custom-condition overrides were declared in, as
+   * context ids. Two `@media` blocks that set the same property on the same
+   * selector are decided by source order, so that order is data and has to be
+   * persisted: `contextStyles` key order does not survive Postgres jsonb, and
+   * the site-level condition registry only knows global first-seen order.
+   *
+   * Optional and additive: a rule without it (authored in the editor, or
+   * persisted before this field existed) falls back to registry order, which is
+   * what the publisher used for every rule until now. Ids listed here that the
+   * rule no longer overrides are ignored at emission.
+   */
+  contextOrder: Type.Optional(Type.Array(Type.String())),
   /** Sanitised raw CSS for supported stylesheet-level rules such as @keyframes. */
   rawCss: Type.Optional(Type.String()),
   /** Optional search/filter tags. Invalid items silently dropped — handled in parseStyleRule. */
@@ -212,6 +225,23 @@ function parseStyleRuleScope(raw: unknown): StyleRule['scope'] {
   return { type: 'node', nodeId: s.nodeId, role: 'module-style' }
 }
 
+/** Source order of a rule's context overrides, filtered to the ones it has. */
+function parseContextOrder(
+  raw: unknown,
+  contextStyles: Record<string, Record<string, unknown>>,
+): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  const order: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string' || seen.has(entry)) continue
+    if (!Object.hasOwn(contextStyles, entry)) continue
+    seen.add(entry)
+    order.push(entry)
+  }
+  return order.length > 0 ? order : undefined
+}
+
 /**
  * Parse a StyleRule, dropping entries that are missing the current selector
  * metadata and providing fallbacks only for resilient style-bag fields.
@@ -231,6 +261,9 @@ export function parseStyleRule(raw: unknown): StyleRule | null {
   const contextStyles = parseContextStyles(r)
   const stylePriorities = parsePriorityBag(r.stylePriorities, styles)
   const contextStylePriorities = parseContextStylePriorities(r.contextStylePriorities, contextStyles)
+  // Kept only for contexts the rule still overrides, and deduped: a stale id
+  // would silently reorder the blocks around it.
+  const contextOrder = parseContextOrder(r.contextOrder, contextStyles)
   const generated = compiledCheck(GeneratedClassMetadataSchema, r.generated)
     ? (r.generated as StyleRule['generated'])
     : undefined
@@ -247,6 +280,7 @@ export function parseStyleRule(raw: unknown): StyleRule | null {
     ...(stylePriorities !== undefined ? { stylePriorities } : {}),
     contextStyles,
     ...(contextStylePriorities !== undefined ? { contextStylePriorities } : {}),
+    ...(contextOrder !== undefined ? { contextOrder } : {}),
     ...(typeof r.rawCss === 'string' && r.rawCss.trim() ? { rawCss: r.rawCss } : {}),
     ...(tags !== undefined ? { tags } : {}),
     ...(generated !== undefined ? { generated } : {}),

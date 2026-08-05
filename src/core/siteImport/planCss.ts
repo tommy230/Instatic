@@ -50,7 +50,6 @@ export function createCssPlanState(): CssPlanState {
 
 export interface ParseCssSourceOptions {
   breakpoints: Array<{ id: string; width: number; mediaQuery?: string }>
-  mediaTolerance: number
   /** Harvests Google-font `@import` requests before they are stripped. */
   collectGoogleFonts: (cssSource: string) => void
 }
@@ -73,7 +72,6 @@ export function parseCssSourceIntoPlan(
   const cssForStyleRules = stripGoogleFontImportRules(cssSource)
   const { rules, warnings, assetRefs, conditions, fontFaces } = cssToStyleRules(cssForStyleRules, {
     breakpoints: options.breakpoints,
-    mediaTolerance: options.mediaTolerance,
   })
   state.warnings.push(...warnings)
   for (const def of conditions) {
@@ -83,13 +81,26 @@ export function parseCssSourceIntoPlan(
     if (w.kind === 'dropped-at-rule' && w.source) state.droppedAtRules.push(w.source)
   }
 
+  // Last definition wins, because that is what the cascade does.
+  //
+  // These tokens are hoisted out of `:root` blocks, and the same custom property
+  // is routinely declared twice: a plugin's stylesheet ships a default and the
+  // site overrides it in an inline `<style>` that comes later in the document.
+  // Registering first-wins inverted that, so every migrated site published the
+  // packaged default. The agency consent widget is the visible case —
+  // `--da-gdpr-primary` is #7b6856 on amkinggroup, #b6872d on vandeverbatten,
+  // #122c4f on 890capital, and all three published the widget's built-in navy
+  // #1a2744, painting the Accept button the wrong colour on every site at once.
+  //
+  // Sources reach here in cascade order (linked sheets first, the page's inline
+  // block appended last — see buildPlan), so overwriting is exactly the CSS rule.
   const { rules: rulesAfterColors, colorTokens } = extractRootColorTokens(rules)
   for (const token of colorTokens) {
-    if (!state.colorsBySlug.has(token.slug)) state.colorsBySlug.set(token.slug, token)
+    state.colorsBySlug.set(token.slug, token)
   }
   const { rules: rulesAfterFontTokens, fontTokens } = extractRootFontTokens(rulesAfterColors)
   for (const token of fontTokens) {
-    if (!state.fontTokensByVariable.has(token.variable)) state.fontTokensByVariable.set(token.variable, token)
+    state.fontTokensByVariable.set(token.variable, token)
   }
 
   state.cssFileResults.push({ cssPath, rules: rulesAfterFontTokens, assetRefs, fontFaces })

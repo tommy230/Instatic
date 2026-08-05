@@ -17,7 +17,9 @@ import { handlePublicFormRequest } from './forms/handler'
 import { isRuntimePackagePath, tryServeRuntimePackage } from './publish/runtime/packageServer'
 import { jsonResponse } from './http'
 import { binaryResponse, toArrayBuffer } from './binary'
+import { join } from 'node:path'
 import { hardenUploadResponse, serveAdminApp, serveStaticFile } from './static'
+import { getPublishedDir } from './publish/staticArtefact'
 import { registry } from '@core/module-engine'
 import type { CssBundleFile, SiteCssBundleId } from '@core/publisher'
 import { buildPublishedSiteCssBundle } from './publish/siteCssBundle'
@@ -90,6 +92,7 @@ const routes: readonly RouteHandler[] = [
   tryServeMediaRedirect,
   tryServeStaticAsset,
   tryServeUpload,
+  tryServePassthroughAsset,
   tryServeAdminApp,
   tryServePublicRoute,
   trySetupRedirect,
@@ -389,6 +392,31 @@ async function tryServeStaticAsset(
   if (!runtime.staticDir) return null
   if (pathname === '/' || pathname === '/index.html') return null
   return await serveStaticFile(runtime.staticDir, pathname, _req)
+}
+
+/**
+ * Files copied verbatim into the publish slot.
+ *
+ * A migrated WordPress site keeps plugins that build their own asset URLs and
+ * fetch them from the origin serving the page: Slider Revolution's
+ * `migration.js`, LayerSlider's `<skinsPath><skin>/skin.css`, an absolute
+ * `/wp-content/uploads/...` image a theme carried through. Nothing rewrites
+ * those, so they have to answer at the path they already name.
+ *
+ * Runs after every namespace the publisher owns and before the public route, so
+ * it can only fill gaps. `.html` is excluded outright: a page is resolved by the
+ * public router, never served as a file from here.
+ */
+async function tryServePassthroughAsset(
+  req: Request,
+  runtime: ServerRuntime,
+  _url: URL,
+  pathname: string,
+): Promise<Response | null> {
+  if (req.method !== 'GET' || !runtime.uploadsDir) return null
+  if (pathname === '/' || pathname.endsWith('.html') || pathname.endsWith('/')) return null
+  const currentSlot = join(getPublishedDir(runtime.uploadsDir), 'current')
+  return await serveStaticFile(currentSlot, pathname, req)
 }
 
 async function tryServeUpload(

@@ -102,7 +102,19 @@ export function mergeRuleContextDeclarations(
   const styles = rule.contextStyles[contextId] ?? {}
   const priorities = { ...(rule.contextStylePriorities?.[contextId] ?? {}) }
   mergeDeclarationCascade({ styles, priorities }, incoming)
+  const isNewContext = rule.contextStyles[contextId] === undefined
   rule.contextStyles[contextId] = styles
+
+  // Record the order this rule first met each context, because that is the
+  // order the source declared them in and the cascade depends on it. Object key
+  // order cannot carry this: the site document round-trips through Postgres
+  // jsonb, which reorders keys. Registry order cannot carry it either — it is
+  // global first-seen order, so a condition another stylesheet happened to use
+  // earlier sorts ahead of one this rule declared first. That is what left
+  // redrockscafe.com emitting its 639px override before its 767px one.
+  if (isNewContext) {
+    rule.contextOrder = [...(rule.contextOrder ?? []), contextId]
+  }
 
   const sparse = sparsePriorities(priorities)
   if (sparse) {

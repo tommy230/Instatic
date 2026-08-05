@@ -25,6 +25,51 @@ export function indexStyleRulesByName(rules: Record<string, StyleRule>): Map<str
 }
 
 /**
+ * A cascade cursor shared across one import recipe.
+ *
+ * Every helper that appends a rule needs the registry's highest `order`. Read
+ * per rule, that is a full scan of the registry per rule: a 633-page re-import
+ * scanned 221k rules 110k times, through a Mutative draft, which is where two
+ * hours of the AM King import went. Computed once and carried, the same import
+ * appends in constant time per rule.
+ */
+export interface CascadeCursor {
+  maxOrder: number
+}
+
+/** The registry's highest cascade `order`, or -1 when it is empty. */
+export function maxStyleRuleOrder(rules: Record<string, StyleRule>): number {
+  let maxOrder = -1
+  for (const rule of Object.values(rules)) {
+    if (typeof rule.order === 'number' && rule.order > maxOrder) maxOrder = rule.order
+  }
+  return maxOrder
+}
+
+/**
+ * Index the ambient rules a site already carries: selector → ids, in cascade
+ * order.
+ *
+ * A list rather than a single id because a stylesheet may declare one selector
+ * several times, and those fragments are distinct rules at distinct cascade
+ * positions. Re-importing the same site brings the same fragments back, and
+ * matching them off this index in order lets each one replace the rule it
+ * corresponds to instead of appending a copy.
+ */
+export function indexAmbientRuleIds(rules: Record<string, StyleRule>): Map<string, string[]> {
+  const bySelector = new Map<string, string[]>()
+  const ordered = Object.values(rules)
+    .filter((rule) => rule.kind !== 'class')
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  for (const rule of ordered) {
+    const ids = bySelector.get(rule.selector)
+    if (ids) ids.push(rule.id)
+    else bySelector.set(rule.selector, [rule.id])
+  }
+  return bySelector
+}
+
+/**
  * Convert the class *names* an HTML importer stamped onto a fragment node
  * (`walkAndMap` copies `el.classList` verbatim) into real registry class *ids*.
  * A name that already names a class links to that class; an unknown name
@@ -39,6 +84,7 @@ export function linkImportedClassNames(
   classNames: readonly string[] | undefined,
   rules: Record<string, StyleRule>,
   byName: Map<string, string>,
+  cascade?: CascadeCursor,
 ): string[] {
   if (!classNames?.length) return []
   const ids: string[] = []
@@ -51,16 +97,16 @@ export function linkImportedClassNames(
       // class-attribute tokens stamped onto imported nodes. Append at the
       // end of the cascade (`order` strictly greater than every existing
       // rule) so they don't accidentally outrank prior user-authored rules.
-      let maxOrder = -1
-      for (const c of Object.values(rules)) {
-        if (typeof c.order === 'number' && c.order > maxOrder) maxOrder = c.order
-      }
+      // A caller running a whole-site import passes its cursor so the registry
+      // is not rescanned per class; a single-fragment insert has no cursor to
+      // share and scans the once.
+      const order = cascade ? (cascade.maxOrder += 1) : maxStyleRuleOrder(rules) + 1
       const cls: StyleRule = {
         id: nanoid(),
         name,
         kind: 'class',
         selector: classKindSelector(name),
-        order: maxOrder + 1,
+        order,
         styles: {},
         contextStyles: {},
         createdAt: now,

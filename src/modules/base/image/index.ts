@@ -22,7 +22,7 @@ import type { RenderResolvedMedia } from '@core/publisher'
 import { Value } from '@core/utils/typeboxHelpers'
 import { registry } from '@core/module-engine'
 import { ImageSolidIcon } from 'pixel-art-icons/icons/image-solid'
-import { escapeHtml, safeUrl } from '@modules/base/utils/escape'
+import { escapeHtml, safeImageUrl } from '@modules/base/utils/escape'
 import {
   htmlAttributesAttr,
   htmlAttributesControl,
@@ -173,18 +173,37 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
   htmlTag: 'img',
 
   render: (props) => {
-    const src = safeUrl(props.src)
+    // Image attribute: a `data:image/…` placeholder is legitimate here and
+    // nowhere else (see safeImageUrl).
+    const src = safeImageUrl(props.src)
     if (!src) return { html: '' }
-    const htmlAttrs = htmlAttributesAttr(props.htmlAttributes)
 
-    // Alt text comes exclusively from the library asset — the library is
-    // the single source of truth for accessibility metadata. Edited in
-    // the Media viewer (asset row), never as a per-instance module prop.
+    // An imported image keeps whatever the source page declared. Those
+    // attributes survive the import as `htmlAttributes`.
+    const authored = props.htmlAttributes ?? {}
+    const sourceHas = (name: string) => Object.hasOwn(authored, name)
+    // `alt` is resolved below and emitted once, from whichever source wins, so
+    // it is held out of the generic passthrough rather than written twice.
+    const { alt: authoredAltRaw, ...authoredOtherAttrs } = authored
+    const htmlAttrs = htmlAttributesAttr(authoredOtherAttrs)
+
+    // Alt text: the library asset is the editable source of truth, and the
+    // source page's own alt is the fallback.
+    //
+    // The library wins when it HAS alt text, because that is the value the
+    // Media viewer edits and a per-instance copy frozen at import would make
+    // those edits silently not apply. It loses when it is empty, because an
+    // empty library field is the absence of a decision, not a decision to ship
+    // no alt text — and an imported image usually has no library entry at all.
+    // Emitting `alt=""` over a source that said "Web Services By Digital
+    // Alchemy" is a straight accessibility and SEO regression, visible to a
+    // screen reader always and to everyone the moment the image 404s.
     //
     // The resolved-media payload is raw (not run through the publisher's
     // `escapeProps`), so we HTML-escape here at the boundary.
     const media = props._resolvedMediaByKey?.src
-    const alt = escapeHtml(media?.altText?.trim() ?? '')
+    const authoredAlt = typeof authoredAltRaw === 'string' ? authoredAltRaw.trim() : ''
+    const alt = escapeHtml(media?.altText?.trim() || authoredAlt)
 
     const loading = props.loading === 'eager' ? 'eager' : 'lazy'
     const decoding = props.decoding === 'sync' ? 'sync' : props.decoding === 'auto' ? 'auto' : 'async'
@@ -207,16 +226,41 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
       ? blurHashToCssBackground(media.blurHash)
       : null
 
+    // Anything the source set is skipped below rather than written twice (see
+    // `authored` above); the module's own value is only used when the source
+    // had none.
+
     // Build the attribute string. Each attribute is conditionally appended
     // so the output is clean (no `width="null"` or empty `srcset=""`).
     const attrs: string[] = [`src="${src}"`, `alt="${alt}"`]
-    if (srcset) attrs.push(`srcset="${srcset}"`)
-    if (sizes) attrs.push(`sizes="${sizes}"`)
-    if (width !== null) attrs.push(`width="${width}"`)
-    if (height !== null) attrs.push(`height="${height}"`)
-    attrs.push(`loading="${loading}"`)
-    attrs.push(`decoding="${decoding}"`)
-    if (fetchPriority !== 'auto') attrs.push(`fetchpriority="${fetchPriority}"`)
+    if (srcset && !sourceHas('srcset')) attrs.push(`srcset="${srcset}"`)
+    if (sizes && !sourceHas('sizes')) attrs.push(`sizes="${sizes}"`)
+    if (width !== null && !sourceHas('width')) attrs.push(`width="${width}"`)
+    if (height !== null && !sourceHas('height')) attrs.push(`height="${height}"`)
+    // Perf hints stay the default for images the editor placed, and are never
+    // forced onto one carried over from a source page that did not ask for
+    // them. Lazy-loading an image the source loaded eagerly can stop it loading
+    // at all: inside LayerSlider's zero-height ls-hidden container the browser
+    // never fetches it, so the slider waits forever for a background that will
+    // not arrive.
+    //
+    // "Carried over" is judged by the absence of a library asset, not by
+    // leftover authored attributes. The earlier attribute test missed the
+    // commonest imported image of all — `<img src alt>` with nothing else —
+    // because both of those become props rather than htmlAttributes, so 26 of
+    // redrockscafe.com's 31 images were still published with a loading="lazy"
+    // the source never had. The editor's `src` control is a media picker, so an
+    // image with no resolvable asset did not come from the editor.
+    const importedWithoutAsset = !media
+    if (!sourceHas('loading') && !importedWithoutAsset) {
+      attrs.push(`loading="${loading}"`)
+    }
+    if (!sourceHas('decoding') && !importedWithoutAsset) {
+      attrs.push(`decoding="${decoding}"`)
+    }
+    if (fetchPriority !== 'auto' && !sourceHas('fetchpriority')) {
+      attrs.push(`fetchpriority="${fetchPriority}"`)
+    }
     // BlurHash background sits BEHIND the image via inline style. Once
     // the variant loads, the opaque <img> covers it. Skipped when
     // loading="eager" — those are above-the-fold images where the user

@@ -233,6 +233,30 @@ export interface CssDeclarationBlock {
 }
 
 /**
+ * Repair a longhand the engine expanded a shorthand into.
+ *
+ * `background: none` and `border: none` are everyday CSS, but the keyword is
+ * only meaningful for the image longhands. Expanding the shorthand puts it in
+ * the COLOUR longhands too, and CSSOM engines hand it back verbatim:
+ * `background-color: none`, `border-top-color: none`. No colour property
+ * accepts `none`, so a browser drops those declarations when it parses the
+ * stylesheet we publish — and a rule whose whole job was to REMOVE a
+ * background stops removing it.
+ *
+ * Measured on shepherdwealthpartners.com, where the consent widget's
+ * `.da-gdpr-close-btn { background: none; border: none }` published as
+ * `background-color: none` and lost to the theme's plain
+ * `button { background: #e6e6e6 }`: the bare × turned into a grey rounded box.
+ * The initial value is the right substitute in both cases — `transparent` for
+ * a background, `currentcolor` for a border — which is exactly what the source
+ * shorthand meant.
+ */
+function repairExpandedShorthandValue(camel: string, value: string): string {
+  if (!camel.endsWith('Color')) return value
+  return value.trim().toLowerCase() === 'none' ? 'initial' : value
+}
+
+/**
  * Walk a parsed `CSSStyleDeclaration` into a camelCase property bag:
  * decodes substitution markers back to their real property
  * (`decodeSubstitutionProperty`), converts kebab-case names to the camelCase
@@ -264,7 +288,7 @@ export function readCssDeclarationBlock(
       onBlockedProperty?.(camel, kebab)
       continue
     }
-    styles[camel] = value
+    styles[camel] = repairExpandedShorthandValue(camel, value)
     if (style.getPropertyPriority(rawKebab).toLowerCase() === 'important') {
       priorities[camel] = 'important'
     }

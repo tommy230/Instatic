@@ -20,18 +20,29 @@ function childrenOf(html: string) {
   return { root, kids: root.children.map((id) => r.nodes[id]!) }
 }
 
-describe('<br> inside a heading is preserved', () => {
-  it('heading with <br> recurses and keeps the break + both text halves', () => {
-    const { root, kids } = childrenOf('<h2>Get the<br/>file-based CMS.</h2>')
+describe('<br> inside text is preserved as an editable hard break', () => {
+  it('heading with plain <br> stays one text module with a newline', () => {
+    const r = importHtml('<h2>Get the<br/>file-based CMS.</h2>')
+    const root = r.nodes[r.rootIds[0]!]!
+    expect(root.moduleId).toBe('base.text')
+    expect(root.props.tag).toBe('h2')
+    expect(root.props.text).toBe('Get the\nfile-based CMS.')
+    expect(TextModule.render(root.props, []).html).toBe('<h2>Get the<br>file-based CMS.</h2>')
+  })
+
+  it('paragraph with repeated plain <br> keeps blank lines in one text module', () => {
+    const r = importHtml('<p>One<br><br>Three</p>')
+    const root = r.nodes[r.rootIds[0]!]!
+    expect(root.moduleId).toBe('base.text')
+    expect(root.props.tag).toBe('p')
+    expect(root.props.text).toBe('One\n\nThree')
+  })
+
+  it('attributed <br> still recurses so its metadata survives', () => {
+    const { root, kids } = childrenOf('<h2>Get the<br class="accent">file-based CMS.</h2>')
     expect(root.moduleId).toBe('base.container')
-    expect(root.props.customTag).toBe('h2')
-    const tags = kids.map((k) => k.props.customTag ?? k.moduleId)
-    expect(tags).toContain('br') // the line break survives as a node
-    const texts = kids
-      .filter((k) => k.moduleId === 'base.text' && k.props.tag === 'none')
-      .map((k) => k.props.text)
-    expect(texts).toContain('Get the')
-    expect(texts).toContain('file-based CMS.')
+    const lineBreak = kids.find((kid) => kid.props.customTag === 'br')
+    expect(lineBreak?.classIds).toContain('accent')
   })
 })
 

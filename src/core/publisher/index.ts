@@ -24,6 +24,8 @@ export { escapeProps } from './escapeProps'
 export {
   addCspSources,
   createBaseCspPlan,
+  cspDirectiveNames,
+  ensureSelfInFetchDirectives,
   cspMetaTag,
   parseCspContent,
   rewriteCspMeta,
@@ -31,8 +33,15 @@ export {
   setCspDirective,
 } from './cspPlan'
 
+export {
+  deriveCspSourcesFromHtml,
+  siteAssetCspSources,
+  siteConfiguredCspSources,
+} from './cspDerivation'
+export type { PageCspRequirement } from './cspDerivation'
 
-export { escapeHtml, isSafeUrl, safeUrl, sanitiseCssValue } from './utils'
+
+export { escapeHtml, isSafeUrl, isSafeImageUrl, safeImageUrl, safeUrl, sanitiseCssValue } from './utils'
 
 export {
   bagToCSS,

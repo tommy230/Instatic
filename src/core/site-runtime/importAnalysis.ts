@@ -9,6 +9,9 @@ import type {
   SiteRuntimeDiagnostic,
 } from './schemas'
 
+/** Vite's dynamic-import feature probe: `import("_")`, never executed. */
+const VITE_DYNAMIC_IMPORT_PROBE = '_'
+
 const NODE_BUILTIN_PACKAGES = new Set([
   'assert',
   'buffer',
@@ -337,6 +340,25 @@ export function analyzeRuntimeScriptImports(
             importEntry.kind,
           ))
         }
+        continue
+      }
+
+      // Vite emits `import("_")` inside a function it never calls, purely so a
+      // browser's support for dynamic import can be feature-detected. It is not
+      // a dependency and there is no package to resolve, but it is a literal
+      // specifier, so it reaches this branch and fails the name check. Treating
+      // it as an error stops the publish outright: an imported site carrying any
+      // Vite-built bundle cannot be published at all, which is what a
+      // queenhempcompany.com import hit (HTTP 500 from publishDraftSiteLocked).
+      if (packageName === VITE_DYNAMIC_IMPORT_PROBE) {
+        diagnostics.push(importDiagnostic(
+          'runtime-dependency-feature-probe',
+          `Ignoring bundler feature probe import("${packageName}")`,
+          'warning',
+          file,
+          importEntry.kind,
+          packageName,
+        ))
         continue
       }
 

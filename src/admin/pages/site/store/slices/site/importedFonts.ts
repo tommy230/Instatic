@@ -34,6 +34,10 @@ export function addImportedFonts(
       path: f.src,
       format: f.format,
       ...(f.unicodeRange ? { unicodeRange: f.unicodeRange } : {}),
+      // The asset planner keeps a face absolute only when its vendor host
+      // cannot be rehosted (Typekit). Mark it so the storage and CSS
+      // boundaries treat the URL as deliberate instead of dropping it.
+      ...(/^https:\/\//i.test(f.src) ? { external: true } : {}),
     }))
     const variants = Array.from(new Set(files.map((f) => f.variant)))
     const entry: FontEntry = {
