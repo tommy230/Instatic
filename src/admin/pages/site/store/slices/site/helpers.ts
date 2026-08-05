@@ -25,6 +25,7 @@ import type { EditorStore } from '@site/store/types'
 import { reconcileFrameworkClasses } from './framework/reconcile'
 import {
   createStyleRuleOrderAllocator,
+  indexAmbientRuleIds,
   indexStyleRulesByName,
   linkImportedClassNames,
   type StyleRuleOrderAllocator,
@@ -354,6 +355,11 @@ export function buildSiteHelpers(
       const byName = indexStyleRulesByName(site.styleRules)
       const allocateStyleRuleOrder = createStyleRuleOrderAllocator(site.styleRules)
 
+      // Both computed once, for the same reason: read per rule they are full
+      // scans of the rule registry, and the registry is a Mutative draft, so
+      // each scan drafts every rule it walks.
+      const ambientBySelector = indexAmbientRuleIds(site.styleRules)
+
       const helpers: SiteImportTransaction = {
         addPage({ id: pageId, title, slug, nodeFragment }: { id?: string; title: string; slug: string; nodeFragment: ImportFragment }): string {
           // addPage creates a fresh base.body root, normalises the slug, and
@@ -389,8 +395,40 @@ export function buildSiteHelpers(
         },
 
         addStyleRule(rule: NewStyleRule): string {
-          const id = nanoid()
           const now = Date.now()
+          // An ambient rule the site already carries under this selector is
+          // that rule arriving again, so it is replaced where it stands rather
+          // than appended beside itself. Without this a re-import adds every
+          // ambient rule a second time: AM King's registry went from 110k rules
+          // to 221,741 on one re-import, and 99.99% of the second import's
+          // ambient rules were already in the store.
+          //
+          // The index is built before the recipe runs and consumed in order, so
+          // a stylesheet that declares one selector several times still lands
+          // all of its fragments, each replacing its own counterpart. Class
+          // rules are not deduped here: their collisions are decided upstream,
+          // by the conflict resolutions the plan carries.
+          if (rule.kind !== 'class') {
+            const reusableIds = ambientBySelector.get(rule.selector)
+            const reusedId = reusableIds?.shift()
+            const reused = reusedId ? site.styleRules[reusedId] : undefined
+            if (reusedId && reused) {
+              site.styleRules[reusedId] = {
+                ...rule,
+                id: reusedId,
+                createdAt: reused.createdAt,
+                updatedAt: now,
+                order: reused.order,
+              }
+              didMutate = true
+              return reusedId
+            }
+          }
+
+          const id = nanoid()
+          // Appended after every existing rule so imports don't disrupt the
+          // established cascade order. The high-water mark is carried across
+          // the recipe rather than recomputed per rule.
           const newRule: StyleRule = {
             ...rule,
             id,

@@ -230,3 +230,67 @@ describe('base form primitive modules', () => {
       .toContain('data-instatic-form-id="Contact-Form"')
   })
 })
+
+// ---------------------------------------------------------------------------
+// base.form htmlAttributes.
+//
+// The `<form>` used to be the one imported element that arrived stripped: its
+// id went into `data-instatic-form-id` and the real attribute was never
+// emitted. Themes style forms through that id — `.widget #searchform
+// input[type=text]` on employeeassessmentgroup.com — so every rule keyed on it
+// stopped matching and the controls fell back to a generic input rule.
+// ---------------------------------------------------------------------------
+
+describe('base.form — source html attributes', () => {
+  it('emits the source id and role alongside the module runtime attributes', () => {
+    const output = FormModule.render({
+      ...FormModule.defaults,
+      mode: 'cms',
+      formId: 'searchform',
+      targetTableId: 'submissions',
+      htmlAttributes: { id: 'searchform', role: 'search', 'aria-label': 'Product search' },
+    }, [])
+
+    expect(output.html).toContain('id="searchform"')
+    expect(output.html).toContain('role="search"')
+    expect(output.html).toContain('aria-label="Product search"')
+    // The module's own attributes still get emitted.
+    expect(output.html).toContain('data-instatic-form-id="searchform"')
+    expect(output.html).toContain('data-instatic-form-mode="cms"')
+    expect(output.html).toBeCleanHTML()
+  })
+
+  it('drops event handlers, style and reserved runtime names', () => {
+    const output = FormModule.render({
+      ...FormModule.defaults,
+      mode: 'custom',
+      htmlAttributes: {
+        onsubmit: 'alert(1)',
+        style: 'display:none',
+        'data-instatic-form-mode': 'cms',
+        id: 'safe',
+      },
+    }, [])
+
+    expect(output.html).not.toContain('onsubmit')
+    expect(output.html).not.toContain('display:none')
+    expect(output.html).not.toContain('data-instatic-form-mode="cms"')
+    expect(output.html).toContain('data-instatic-form-mode="custom"')
+    expect(output.html).toContain('id="safe"')
+  })
+
+  it('refuses an executable URL scheme in a carried attribute', () => {
+    const output = FormModule.render({
+      ...FormModule.defaults,
+      htmlAttributes: { formaction: 'javascript:alert(1)', id: 'ok' },
+    }, [])
+
+    expect(output.html).not.toContain('javascript:')
+    expect(output.html).toContain('id="ok"')
+  })
+
+  it('emits nothing extra when the form carried no attributes', () => {
+    const output = FormModule.render({ ...FormModule.defaults, mode: 'cms', formId: 'plain' }, [])
+    expect(output.html).toContain('<form data-instatic-form-id="plain"')
+  })
+})

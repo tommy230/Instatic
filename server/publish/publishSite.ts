@@ -48,6 +48,7 @@ import {
   writeArtefact,
   writeStaticAsset,
 } from './staticArtefact'
+import { copyPassthroughAssets } from './passthroughAssets'
 import { buildPublishedSiteCssBundle } from './siteCssBundle'
 import { bakePublishedDataRowArtefacts } from './bakeDataRows'
 import { bumpPublishVersion, getPublishVersion, withPublishLock } from './publishState'
@@ -295,6 +296,20 @@ async function publishDraftSiteLocked(
       for (const [publicPath, bytes] of assetsByPath) {
         await writeStaticAsset(slotDir, publicPath, bytes)
       }
+
+      // Last, so a baked page or generated asset always wins the path: files
+      // staged for passthrough only fill the gaps a runtime-built URL falls into.
+      const passthrough = await copyPassthroughAssets(slotDir, process.env.INSTATIC_PASSTHROUGH_DIR)
+      if (passthrough.copied.length > 0) {
+        console.log(`[publish:site] passthrough: ${passthrough.copied.length} file(s) copied`)
+      }
+      if (passthrough.shadowed.length > 0 || passthrough.reserved.length > 0) {
+        console.warn(
+          `[publish:site] passthrough skipped ${passthrough.shadowed.length} shadowed by a route` +
+            ` and ${passthrough.reserved.length} in a reserved namespace`,
+        )
+      }
+
       await swapSlot(uploadsDir, slot)
     } catch (err) {
       console.error('[publish:site] static artefact write failed (live renderer remains active):', err)

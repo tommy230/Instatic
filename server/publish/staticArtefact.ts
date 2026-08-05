@@ -67,7 +67,7 @@ export const NOT_FOUND_ARTEFACT_URL_PATH = '/404'
 // Private path helpers
 // ---------------------------------------------------------------------------
 
-function getPublishedDir(uploadsDir: string): string {
+export function getPublishedDir(uploadsDir: string): string {
   return join(uploadsDir, 'published')
 }
 

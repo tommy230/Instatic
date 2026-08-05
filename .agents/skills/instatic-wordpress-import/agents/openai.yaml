@@ -1,0 +1,4 @@
+interface:
+  display_name: "Instatic WordPress Import"
+  short_description: "Audit, import, verify, and improve WordPress migrations"
+  default_prompt: "Use $instatic-wordpress-import to migrate this WordPress site into Instatic and verify the result."

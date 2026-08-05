@@ -44,6 +44,29 @@ export function indexStyleRulesByName(rules: Record<string, StyleRule>): Map<str
 }
 
 /**
+ * Index the ambient rules a site already carries: selector → ids, in cascade
+ * order.
+ *
+ * A list rather than a single id because a stylesheet may declare one selector
+ * several times, and those fragments are distinct rules at distinct cascade
+ * positions. Re-importing the same site brings the same fragments back, and
+ * matching them off this index in order lets each one replace the rule it
+ * corresponds to instead of appending a copy.
+ */
+export function indexAmbientRuleIds(rules: Record<string, StyleRule>): Map<string, string[]> {
+  const bySelector = new Map<string, string[]>()
+  const ordered = Object.values(rules)
+    .filter((rule) => rule.kind !== 'class')
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  for (const rule of ordered) {
+    const ids = bySelector.get(rule.selector)
+    if (ids) ids.push(rule.id)
+    else bySelector.set(rule.selector, [rule.id])
+  }
+  return bySelector
+}
+
+/**
  * Convert the class *names* an HTML importer stamped onto a fragment node
  * (`walkAndMap` copies `el.classList` verbatim) into real registry class *ids*.
  * A name that already names a class links to that class; an unknown name

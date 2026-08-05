@@ -108,36 +108,66 @@ const HTML_ATTRIBUTE_MODULES = new Set([
   'base.link',
   'base.button',
   'base.image',
-  // A form is the anchor an authored progressive-enhancement script binds to,
-  // so its safe data-* / ARIA attributes have to survive import like any other
-  // element's. Without this the hooks silently vanish and the script no-ops.
+  // A rebuilt submit button is styled by the id and class the source gave it,
+  // so those have to survive the rebuild (redrockscafe.com's newsletter button
+  // lost `#gform_submit_button_11` / `.gform_button.button` and its styling).
+  'base.submit',
+  // Same reason one level up. A theme styles a search or contact form through
+  // the form's own id — `.widget #searchform input[type=text]` on
+  // employeeassessmentgroup.com — and the id was the one thing an imported
+  // `<form>` did not keep: it went into `data-instatic-form-id` and the real
+  // attribute was never emitted, so every rule keyed on it stopped matching.
   'base.form',
 ])
 
 const MODULE_GENERATED_ATTRIBUTE_NAMES: Record<string, readonly string[]> = {
   'base.button': ['aria-disabled', 'disabled', 'href', 'rel', 'target', 'type'],
+  // Submission mechanics belong to the module, not to the source element.
+  //
+  // `action` and `method` are regenerated from props in custom mode and
+  // deliberately absent in cms mode, so carrying the source copies through
+  // would re-attach a dead WordPress endpoint to a form that now posts JSON to
+  // this store. `enctype` and `target` are the multipart/iframe plumbing of
+  // that same dead endpoint. `novalidate` is the one that actually changes
+  // behaviour: the CMS runtime hangs off the `submit` event, which the browser
+  // only fires once native constraint validation has passed, so a carried-over
+  // `novalidate` would let an empty required field through to a 400.
   'base.form': [
     'action',
+    'accept-charset',
     'data-instatic-form-id',
     'data-instatic-form-mode',
     'data-instatic-success-message',
     'data-instatic-success-redirect',
     'data-instatic-target-table',
+    'enctype',
     'method',
+    'novalidate',
+    'target',
   ],
-  'base.image': [
-    'alt',
-    'decoding',
-    'fetchpriority',
-    'height',
-    'loading',
-    'sizes',
-    'src',
-    'srcset',
-    'style',
-    'width',
-  ],
+  // Only the attributes the module can always regenerate are dropped. The
+  // responsive and priority hints are regenerated from the media-library asset,
+  // and an imported image whose src is a remote URL has no asset, so dropping
+  // them there loses them outright: on regencywoods-cary.com the slide
+  // backgrounds arrived with srcset, sizes, width, height and
+  // fetchpriority="high" and were published with none of them, plus a
+  // loading="lazy" the source never had. A lazy image inside LayerSlider's
+  // ls-hidden (height 0) container is never fetched, so the slider waited
+  // forever for backgrounds that would not load and the hero stayed blank.
+  //
+  // The renderer prefers these when they survive here and regenerates them when
+  // they do not, so a library image is unaffected.
+  // `decoding` stays for the same reason as the responsive hints: the module
+  // regenerates it only for library images, so dropping a source-declared
+  // `decoding` here would lose it outright on an imported one.
+  // `alt` is NOT listed: the module regenerates it only from a library asset,
+  // and an imported image pointing at a remote URL has none, so dropping the
+  // source's alt here published `alt=""` on every imported image.
+  'base.image': ['src', 'style'],
   'base.link': ['href', 'rel', 'target'],
+  // `value` becomes the label and `type` is what the module always emits;
+  // everything else (id, class, data-*) is the source's own identity.
+  'base.submit': ['type', 'value'],
 }
 
 /**

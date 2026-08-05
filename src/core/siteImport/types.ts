@@ -116,8 +116,9 @@ export interface ImportWarning {
 /**
  * A hint that maps a named viewport context to its CSS media query and pixel
  * frame width. Passed to `cssToStyleRules` so @media queries can be matched to
- * existing site viewport contexts by configured query first, then by
- * max-width threshold (±mediaTolerance) for older/default contexts.
+ * existing site viewport contexts. Matching is by query text only: a block
+ * whose query is not the context's own query is kept verbatim as a custom
+ * condition, so neither its text nor its source position changes.
  */
 export interface BreakpointHint {
   /** Viewport context identifier, matching a context key used in `StyleRule.contextStyles`. */
@@ -180,6 +181,8 @@ export interface ParsedFontFace {
   variant: string
   /** Raw `url(...)` payloads from the `src` descriptor, in source order. */
   srcUrls: string[]
+  /** The `format(...)` hint beside each `srcUrls` entry, same order. */
+  srcFormats?: Array<string | null>
   unicodeRange?: string
 }
 

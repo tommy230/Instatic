@@ -7,7 +7,7 @@
  *
  * ## @media policy
  *
- * Matched @media (configured viewport query, or within ±mediaTolerance of a known max-width):
+ * Matched @media (the site viewport context's own query, matched exactly):
  *   inner declarations are folded into `contextStyles[matchedViewportId]`.
  *
  * Unmatched @media / every @container / every @supports:
@@ -45,6 +45,7 @@ import {
   selectorBindingClassName,
   splitCssSelectorList,
 } from '@core/page-tree'
+import { extractSrcEntries } from './fontSrc'
 import { processKeyframesRule } from './keyframesToStyleRule'
 import { encodeSubstitutionDeclarations } from '@core/css-substitution'
 import { matchMediaQueryToViewport } from './mediaQueryMatch'
@@ -73,12 +74,6 @@ interface CssToStyleRulesOptions {
    * Defaults to `[]` (all @media queries are treated as unmatched).
    */
   breakpoints?: BreakpointHint[]
-  /**
-   * Tolerance in CSS pixels for matching an older/default max-width media query
-   * to a viewport context by frame width. A query `(max-width: 768px)` matches a
-   * context with width 775px if `mediaTolerance >= 7`. Defaults to 10.
-   */
-  mediaTolerance?: number
 }
 
 interface CssToStyleRulesResult {
@@ -213,7 +208,6 @@ export function cssToStyleRules(
   options?: CssToStyleRulesOptions,
 ): CssToStyleRulesResult {
   const breakpoints = options?.breakpoints ?? []
-  const mediaTolerance = options?.mediaTolerance ?? 10
 
   const rules: NewStyleRule[] = []
   const warnings: ImportWarning[] = []
@@ -274,7 +268,6 @@ export function cssToStyleRules(
         fontFaces,
         conditionsById,
         breakpoints,
-        mediaTolerance,
         selectorToLastIndex,
         seenClassSelectors,
       )
@@ -361,7 +354,6 @@ function processTopLevelRule(
   fontFaces: ParsedFontFace[],
   conditionsById: Map<string, ConditionDef>,
   breakpoints: BreakpointHint[],
-  mediaTolerance: number,
   selectorToLastIndex: Map<string, number>,
   seenClassSelectors: Set<string>,
 ): void {
@@ -385,7 +377,6 @@ function processTopLevelRule(
         assetRefs,
         conditionsById,
         breakpoints,
-        mediaTolerance,
         selectorToLastIndex,
         seenClassSelectors,
       )
@@ -500,7 +491,14 @@ function collectFontFace(
     assetRefs,
   )
 
-  if (parsed.fontFace) fontFaces.push(parsed.fontFace)
+  if (parsed.fontFace) {
+    const srcEntries = extractSrcEntries(parsed.srcValue)
+    fontFaces.push({
+      ...parsed.fontFace,
+      srcUrls: srcEntries.map((entry) => entry.url),
+      srcFormats: srcEntries.map((entry) => entry.format),
+    })
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -588,7 +586,6 @@ function processMediaRule(
   assetRefs: AssetRef[],
   conditionsById: Map<string, ConditionDef>,
   breakpoints: BreakpointHint[],
-  mediaTolerance: number,
   selectorToLastIndex: Map<string, number>,
   seenClassSelectors: Set<string>,
 ): void {
@@ -598,7 +595,7 @@ function processMediaRule(
     (mediaRule as CSSMediaRule & { conditionText?: string }).conditionText
     ?? mediaRule.media.mediaText
 
-  const matched = matchMediaQueryToViewport(conditionText, breakpoints, mediaTolerance)
+  const matched = matchMediaQueryToViewport(conditionText, breakpoints)
 
   if (matched !== null) {
     // Matched breakpoint: merge inner rules into contextStyles[matched.id].

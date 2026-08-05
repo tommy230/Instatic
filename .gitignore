@@ -58,6 +58,8 @@ data/*.db-wal
 !.agents/skills/skill-creator/**
 !.agents/skills/instatic-user-e2e/
 !.agents/skills/instatic-user-e2e/**
+!.agents/skills/instatic-wordpress-import/
+!.agents/skills/instatic-wordpress-import/**
 .skills/
 
 # User uploads — runtime data, never commit

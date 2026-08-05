@@ -141,14 +141,19 @@ describe('cssToStyleRules — @media → contextStyles (matched)', () => {
     expect(warnings).toHaveLength(0)
   })
 
-  it('@media within tolerance is matched', () => {
+  // Near-miss folding was removed deliberately. Snapping a source query to a
+  // breakpoint rewrites the query AND moves the block after every custom
+  // condition in the published cascade, which inverted a 767px/639px override
+  // pair on redrockscafe.com and changed what rendered at 390px.
+  it('@media near a breakpoint width is kept verbatim, not snapped to it', () => {
     const css = '.foo { color: red }\n@media (max-width: 768px) { .foo { color: blue } }'
-    const { rules, warnings } = cssToStyleRules(css, {
+    const { rules, warnings, conditions } = cssToStyleRules(css, {
       breakpoints: [{ id: 'tablet', width: 780 }],
-      mediaTolerance: 15,
     })
     expect(rules).toHaveLength(1)
-    expect(rules[0].contextStyles.tablet).toMatchObject({ color: 'blue' })
+    expect(rules[0].contextStyles.tablet).toBeUndefined()
+    expect(conditions).toHaveLength(1)
+    expect(conditions[0].condition).toMatchObject({ kind: 'media', query: '(max-width: 768px)' })
     expect(warnings).toHaveLength(0)
   })
 
@@ -758,5 +763,45 @@ describe('cssToStyleRules — custom @media as conditional layers (no warnings)'
     const cid = conditionId({ kind: 'media', query: '(max-width: 860px)' })
     expect(Object.keys(a.contextStyles)).toEqual([cid])
     expect(a.contextStyles[cid]).toMatchObject({ color: 'red', fontSize: '14px' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Shorthand expansion: `none` must never reach a colour longhand.
+//
+// `background: none` and `border: none` are the two most common resets on the
+// web. Expanding them puts the keyword in the colour longhands as well as the
+// image ones, and `background-color: none` is not a declaration any browser
+// accepts — it is dropped at parse time, so the reset silently stops
+// resetting and whatever the theme set underneath wins. That is how
+// shepherdwealthpartners' consent-bar close button, whose rule says
+// `background: none; border: none`, published as a grey bordered box.
+// ---------------------------------------------------------------------------
+
+describe('cssToStyleRules — shorthand expansion into colour longhands', () => {
+  it('background: none does not publish background-color: none', () => {
+    const { rules } = cssToStyleRules('.close { background: none }')
+    expect(rules[0].styles.backgroundImage).toBe('none')
+    expect(rules[0].styles.backgroundColor).toBe('initial')
+  })
+
+  it('border: none does not publish border-*-color: none', () => {
+    const { rules } = cssToStyleRules('.close { border: none }')
+    expect(rules[0].styles.borderTopStyle).toBe('none')
+    for (const side of ['borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor']) {
+      expect(rules[0].styles[side]).toBe('initial')
+    }
+  })
+
+  it('a real colour is left exactly as authored', () => {
+    const { rules } = cssToStyleRules('.close { background: #e6e6e6; border: 1px solid #ccc }')
+    expect(rules[0].styles.backgroundColor).toBe('#e6e6e6')
+    expect(rules[0].styles.borderTopColor).toBe('#ccc')
+  })
+
+  it('none is still honoured on the properties that accept it', () => {
+    const { rules } = cssToStyleRules('.close { background-image: none; border-style: none }')
+    expect(rules[0].styles.backgroundImage).toBe('none')
+    expect(rules[0].styles.borderTopStyle).toBe('none')
   })
 })

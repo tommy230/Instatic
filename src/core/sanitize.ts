@@ -32,6 +32,10 @@ import DOMPurify, { type Config } from 'dompurify'
 type DOMPurifyHookNode = {
   tagName?: string
   setAttribute?: (name: string, value: string) => void
+  getAttribute?: (name: string) => string | null
+  hasAttribute?: (name: string) => boolean
+  remove?: () => void
+  parentNode?: { removeChild?: (node: unknown) => void } | null
 }
 
 export type DOMPurifyRuntime = {
@@ -43,35 +47,99 @@ type DOMPurifyFactory = DOMPurifyRuntime & ((window: Window) => DOMPurifyRuntime
 
 const importedDOMPurify = DOMPurify as unknown as DOMPurifyFactory
 let activeDOMPurify: DOMPurifyRuntime | null = null
-const purifiersWithLinkHook = new WeakSet<object>()
+const purifiersWithHooks = new WeakSet<object>()
 
-function installLinkHook(purifier: DOMPurifyRuntime): DOMPurifyRuntime {
-  if (!purifiersWithLinkHook.has(purifier) && typeof purifier.addHook === 'function') {
+/**
+ * A same-document fragment reference and nothing else.
+ *
+ * Deliberately not a URL parse: the only `<use>` target this codebase will
+ * emit is `#some-id`, so the check is a whole-string match against the
+ * characters an id can contain rather than an attempt to reason about what a
+ * browser would resolve. Anything with a scheme, a host, a slash, a query, a
+ * space or a second `#` fails by construction.
+ */
+const SVG_FRAGMENT_REFERENCE = /^#[A-Za-z0-9_:.-]+$/
+
+/** The reference attributes `<use>` can carry. Both are checked, never one. */
+const SVG_USE_REFERENCE_ATTRIBUTES = ['href', 'xlink:href'] as const
+
+/**
+ * Drop a `<use>` unless every reference on it is a same-document fragment.
+ *
+ * `<use>` is excluded from DOMPurify's SVG profile for a real reason:
+ * `<use href="https://evil.example/x.svg#i">` pulls a remote document into the
+ * page, which is a cross-origin content-injection primitive. A `#fragment`
+ * reference cannot do that — it can only instantiate a node from the same
+ * document — and it is how every icon sprite on the web works. 890capital's
+ * checkmarks are the measured case: the Oxygen theme renders each one as
+ * `<svg><use xlink:href="#FontAwesomeicon-check"/></svg>` against an inline
+ * `<symbol>` sprite that imports fine, so dropping the `<use>` published 13
+ * correctly-sized, correctly-coloured, completely empty `<svg>` boxes.
+ *
+ * The element is removed, not just its attribute: a `<use>` with no resolvable
+ * reference renders nothing and would leave a lie in the markup. A `<use>`
+ * carrying no reference at all is dropped for the same reason.
+ *
+ * Leading and trailing whitespace is TRIMMED before the check and the trimmed
+ * value written back, so `href=" #ok"` is accepted. Browsers strip ASCII
+ * whitespace when resolving a URL attribute, so refusing it would reject
+ * markup a browser treats as identical to the bare form — and writing the
+ * trimmed value back means the string validated here is byte-for-byte the
+ * string the browser resolves, with no room for the two to disagree.
+ */
+function pruneUnsafeSvgUse(node: DOMPurifyHookNode): void {
+  if (String(node.tagName ?? '').toUpperCase() !== 'USE') return
+
+  let references = 0
+  let safe = true
+  for (const attribute of SVG_USE_REFERENCE_ATTRIBUTES) {
+    if (!node.hasAttribute?.(attribute)) continue
+    references += 1
+    const value = String(node.getAttribute?.(attribute) ?? '').trim()
+    if (!SVG_FRAGMENT_REFERENCE.test(value)) {
+      safe = false
+      break
+    }
+    node.setAttribute?.(attribute, value)
+  }
+
+  if (safe && references > 0) return
+  if (typeof node.remove === 'function') node.remove()
+  else node.parentNode?.removeChild?.(node)
+}
+
+function installSanitizerHooks(purifier: DOMPurifyRuntime): DOMPurifyRuntime {
+  if (!purifiersWithHooks.has(purifier) && typeof purifier.addHook === 'function') {
     purifier.addHook('afterSanitizeAttributes', (node) => {
       if (node.tagName === 'A') {
         node.setAttribute?.('target', '_blank')
         node.setAttribute?.('rel', 'noopener noreferrer')
       }
+      // Installed on every purifier rather than added and removed around the
+      // SVG call: `use` is only reachable when a config allows it (today, only
+      // SVG_CONFIG), and a rule this load-bearing should not depend on which
+      // entry point ran.
+      pruneUnsafeSvgUse(node)
     })
-    purifiersWithLinkHook.add(purifier)
+    purifiersWithHooks.add(purifier)
   }
   return purifier
 }
 
 export function configureRichtextSanitizer(purifier: DOMPurifyRuntime | null): void {
-  activeDOMPurify = purifier ? installLinkHook(purifier) : null
+  activeDOMPurify = purifier ? installSanitizerHooks(purifier) : null
 }
 
 function getDOMPurify(): DOMPurifyRuntime | null {
   const direct = activeDOMPurify ?? importedDOMPurify
   if (typeof direct.sanitize === 'function') {
-    return installLinkHook(direct)
+    return installSanitizerHooks(direct)
   }
 
   if (typeof window !== 'undefined' && typeof importedDOMPurify === 'function') {
     activeDOMPurify = importedDOMPurify(window)
     if (typeof activeDOMPurify.sanitize === 'function') {
-      return installLinkHook(activeDOMPurify)
+      return installSanitizerHooks(activeDOMPurify)
     }
   }
 
@@ -188,7 +256,23 @@ export function sanitizeRichtext(
     return config._plainText ? stripped.trim() : stripped
   }
 
-  const sanitized = String(purifier.sanitize(str, config))
+  // Sanitise to a fixed point — see the long note in `sanitizeSvg`. Removing a
+  // disallowed element makes DOMPurify's NodeIterator skip every sibling after
+  // it for the remainder of that pass. Measured on one pass of
+  // `<p><iframe></iframe><b onclick="alert(1)">hi</b></p>`: the iframe went, the
+  // `onclick` stayed. Re-running until the output stops changing closes it; a
+  // value still changing at the cap is dropped rather than emitted.
+  let sanitized = str
+  let converged = false
+  for (let pass = 0; pass < 8; pass++) {
+    const next = String(purifier.sanitize(sanitized, config))
+    if (next === sanitized) {
+      converged = true
+      break
+    }
+    sanitized = next
+  }
+  if (!converged) return ''
 
   // When plain-text mode is requested, apply a post-strip pass.
   // DOMPurify's ALLOWED_TAGS:[] covers most cases but certain browsers / DOM
@@ -231,6 +315,12 @@ const SVG_CONFIG: Config = {
   // attributes stay under DOMPurify's scheme validation so safe same-document
   // references such as <textPath href="#ring"> can resolve their SVG geometry.
   FORBID_TAGS: ['script', 'foreignObject', 'a'],
+  // `<use>` and its reference attribute are re-admitted here and then policed
+  // by `pruneUnsafeSvgUse` in the shared hook, which keeps only same-document
+  // `#fragment` targets. Icon sprites are the reason; the remote-document
+  // vector the profile was guarding against is still refused.
+  ADD_TAGS: ['use'],
+  ADD_ATTR: ['xlink:href'],
   RETURN_DOM: false,
   RETURN_DOM_FRAGMENT: false,
 }
@@ -256,5 +346,29 @@ export function sanitizeSvg(value: unknown): string {
     return ''
   }
 
-  return String(purifier.sanitize(str, SVG_CONFIG))
+  // Sanitise to a fixed point, not once.
+  //
+  // DOMPurify walks the tree with a NodeIterator in document order. Removing a
+  // FORBID_TAGS element re-parents its children into a position the iterator has
+  // already passed, and the iterator is then reset to the removed node's former
+  // place — so every sibling AFTER it is skipped for the rest of that pass.
+  // Measured on a single pass of
+  //   <svg onload><foreignObject>…</foreignObject>
+  //    <a href="javascript:…"><path onclick="alert(1)"/></a>
+  //    <image href="javascript:…"/><use href="https://evil.example/x#i"/></svg>
+  // only `<foreignObject>` and the root's `onload` were removed; the `onclick`,
+  // both `javascript:` URLs and the external `<use>` all survived into the
+  // output. Each further pass strips one more forbidden tag and stops again.
+  //
+  // Re-running until the output stops changing removes the whole class. Clean
+  // markup converges on the second pass (the first only normalises self-closing
+  // tags). A value that has not converged by the cap is malicious or malformed
+  // beyond what we are willing to emit, so it is dropped entirely.
+  let current = str
+  for (let pass = 0; pass < 8; pass++) {
+    const next = String(purifier.sanitize(current, SVG_CONFIG))
+    if (next === current) return next
+    current = next
+  }
+  return ''
 }

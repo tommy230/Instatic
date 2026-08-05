@@ -105,7 +105,7 @@ describe('base.text — headings h1-h6', () => {
   })
 
   it('heading with nested markup recurses, preserving the inline structure + spacing', () => {
-    // A heading that wraps element children (e.g. <strong>, <br>) becomes a
+    // A heading that wraps semantic element children (e.g. <strong>) becomes a
     // container so the nested markup survives instead of being flattened into
     // one merged string. The inline space around the <strong> is preserved.
     const result = single('<h2>Bold <strong>word</strong> here</h2>')
@@ -133,6 +133,13 @@ describe('base.text — paragraph and inline phrasing', () => {
     expect(node.moduleId).toBe('base.text')
     expect(node.props.tag).toBe('p')
     expect(node.props.text).toBe('Hello paragraph')
+  })
+
+  it('p with plain line breaks → one editable base.text with newlines', () => {
+    const node = single('<p>First line<br>Second line<br>Third line</p>')
+    expect(node.moduleId).toBe('base.text')
+    expect(node.props.tag).toBe('p')
+    expect(node.props.text).toBe('First line\nSecond line\nThird line')
   })
 
   it('span → tag "span"', () => {
@@ -473,20 +480,19 @@ describe('base.container — <ul> and <ol> (builtin tags)', () => {
     }
   })
 
-  it('<li> children become base.container with tag:"custom", customTag:"li"', () => {
+  it('text-only <li> children become base.text with semantic tag "li"', () => {
     const result = imported('<ul><li>First</li></ul>')
     const ulId = result.rootIds[0]!
     const ulNode = result.nodes[ulId]!
     const liId = ulNode.children[0]!
     const liNode = result.nodes[liId]!
 
-    // <li> is not in BUILTIN_HTML_TAGS → catch-all: tag:'custom', customTag:'li'
-    expect(liNode.moduleId).toBe('base.container')
-    expect(liNode.props.tag).toBe('custom')
-    expect(liNode.props.customTag).toBe('li')
+    expect(liNode.moduleId).toBe('base.text')
+    expect(liNode.props.tag).toBe('li')
+    expect(liNode.props.text).toBe('First')
   })
 
-  it('<ol> children are correct — li uses tag:"custom"', () => {
+  it('<ol> text-only children use editable semantic list items', () => {
     const result = imported('<ol><li>A</li><li>B</li><li>C</li></ol>')
     const olId = result.rootIds[0]!
     const olNode = result.nodes[olId]!
@@ -494,8 +500,8 @@ describe('base.container — <ul> and <ol> (builtin tags)', () => {
 
     for (const childId of olNode.children) {
       const child = result.nodes[childId]!
-      expect(child.props.tag).toBe('custom')
-      expect(child.props.customTag).toBe('li')
+      expect(child.moduleId).toBe('base.text')
+      expect(child.props.tag).toBe('li')
     }
   })
 })
@@ -602,12 +608,11 @@ describe('base.container — custom tag (NOT in BUILTIN_HTML_TAGS)', () => {
     expect(captionNode.props.customTag).toBe('figcaption')
   })
 
-  it('<li> → base.container tag:"custom", customTag:"li"', () => {
-    // li is not in BUILTIN_HTML_TAGS — only reachable via catch-all (or from ul/ol)
+  it('text-only <li> → base.text tag:"li"', () => {
     const node = single('<li>Item</li>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('li')
+    expect(node.moduleId).toBe('base.text')
+    expect(node.props.tag).toBe('li')
+    expect(node.props.text).toBe('Item')
   })
 })
 
@@ -996,7 +1001,10 @@ describe('HTML attribute preservation — props.htmlAttributes for ordinary base
     expect(children[0]!.moduleId).toBe('base.link')
     expect(children[0]!.props.htmlAttributes).toEqual({ 'data-track': 'jump' })
     expect(children[1]!.moduleId).toBe('base.image')
-    expect(children[1]!.props.htmlAttributes).toEqual({ 'data-lazy': 'logo' })
+    // `alt` is kept, not treated as module-owned: the module regenerates it
+    // only from a library asset, and an imported image pointing at a remote URL
+    // has none, so dropping it here published alt="" on every imported image.
+    expect(children[1]!.props.htmlAttributes).toEqual({ 'data-lazy': 'logo', alt: 'Logo' })
   })
 })
 
@@ -1043,9 +1051,8 @@ describe('nested structure — parent/child IDs in document order', () => {
 
     for (const childId of ulNode.children) {
       const liNode = result.nodes[childId]!
-      expect(liNode.moduleId).toBe('base.container')
-      expect(liNode.props.tag).toBe('custom')
-      expect(liNode.props.customTag).toBe('li')
+      expect(liNode.moduleId).toBe('base.text')
+      expect(liNode.props.tag).toBe('li')
     }
   })
 
@@ -1129,13 +1136,23 @@ describe('direct text in containers → synthesized no-wrapper base.text', () =>
     expect(textNode.props.text).toBe('98%')
   })
 
-  it('text-only <li> → container with a no-wrapper text child (no longer empty)', () => {
+  it('text-only <li> → directly editable semantic text node', () => {
     const result = imported('<ul><li>Buy milk</li></ul>')
     const ulNode = result.nodes[result.rootIds[0]!]!
     const liNode = result.nodes[ulNode.children[0]!]!
+    expect(liNode.moduleId).toBe('base.text')
+    expect(liNode.props.tag).toBe('li')
+    expect(liNode.props.text).toBe('Buy milk')
+    expect(liNode.children).toHaveLength(0)
+  })
+
+  it('list item with nested markup → recursing semantic container', () => {
+    const result = imported('<ul><li>Buy <strong>milk</strong></li></ul>')
+    const ulNode = result.nodes[result.rootIds[0]!]!
+    const liNode = result.nodes[ulNode.children[0]!]!
+    expect(liNode.moduleId).toBe('base.container')
     expect(liNode.props.customTag).toBe('li')
-    expect(liNode.children).toHaveLength(1)
-    expect(result.nodes[liNode.children[0]!]!.props.text).toBe('Buy milk')
+    expect(liNode.children).toHaveLength(2)
   })
 
   it('mixed content → text and element children interleaved in document order', () => {
@@ -1375,11 +1392,28 @@ describe('base.video — <iframe> import mapping', () => {
     expect(node.props.playsinline).toBe(true)
   })
 
-  it('Vimeo iframe → falls back to base.container (not base.video)', () => {
-    const node = single('<iframe src="https://player.vimeo.com/video/123456789"></iframe>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.tag).toBe('custom')
-    expect(node.props.customTag).toBe('iframe')
+  it('trusted Vimeo iframe → base.video with its embed attributes preserved', () => {
+    const node = single(
+      '<iframe src="https://player.vimeo.com/video/123456789?dnt=1" title="Welcome" width="640" height="360" allow="autoplay; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>',
+    )
+    expect(node.moduleId).toBe('base.video')
+    expect(node.props).toMatchObject({
+      videoUrl: 'https://player.vimeo.com/video/123456789?dnt=1',
+      title: 'Welcome',
+      embedWidth: '640',
+      embedHeight: '360',
+      iframeAllow: 'autoplay; fullscreen',
+      iframeReferrerPolicy: 'strict-origin-when-cross-origin',
+      allowFullscreen: true,
+    })
+  })
+
+  it('trusted Cloudflare Stream iframe → base.video', () => {
+    const node = single(
+      '<iframe src="https://iframe.videodelivery.net/0123456789abcdef"></iframe>',
+    )
+    expect(node.moduleId).toBe('base.video')
+    expect(node.props.videoUrl).toBe('https://iframe.videodelivery.net/0123456789abcdef')
   })
 
   it('Google Maps iframe → falls back to base.container', () => {
@@ -1469,5 +1503,60 @@ describe('edge cases', () => {
     expect(result.stripped.scripts).toBe(0)
     expect(result.stripped.inlineHandlers).toBe(0)
     expect(result.styleCss).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A source <form> keeps its own attributes.
+//
+// The id is the load-bearing one: WordPress themes style search and contact
+// forms through `#searchform` / `#gform_1`, and until base.form carried
+// htmlAttributes the id was consumed into `data-instatic-form-id` and never
+// re-emitted. `.widget #searchform input[type=text]` on
+// employeeassessmentgroup.com stopped matching, so the search field lost
+// `float: left; width: 74%; background: transparent; border: none` and the
+// floated magnifier dropped to its own line.
+// ---------------------------------------------------------------------------
+
+describe('base.form — source attributes survive the import', () => {
+  it('keeps the id, role, class names and aria attributes of the source form', () => {
+    const form = single(
+      '<form id="searchform" role="search" class="woocommerce-product-search" aria-label="Search products" method="get" action="/"></form>',
+    )
+
+    expect(form.moduleId).toBe('base.form')
+    expect(form.props.htmlAttributes).toMatchObject({
+      id: 'searchform',
+      role: 'search',
+      'aria-label': 'Search products',
+    })
+    // Class names travel as classIds, the same as every other imported element.
+    expect(form.classIds).toEqual(['woocommerce-product-search'])
+    // The id is still the source of the form identifier as well.
+    expect(form.props.formId).toBe('searchform')
+  })
+
+  it('does not carry the submission mechanics the module owns', () => {
+    const form = single(
+      '<form id="gform_1" action="/#gf_1" method="post" enctype="multipart/form-data" target="gform_ajax_frame_1" accept-charset="utf-8" novalidate></form>',
+    )
+
+    const attrs = form.props.htmlAttributes as Record<string, string>
+    expect(attrs.id).toBe('gform_1')
+    for (const owned of ['action', 'method', 'enctype', 'target', 'accept-charset', 'novalidate']) {
+      expect(attrs[owned]).toBeUndefined()
+    }
+    // They are still read into the props the module renders from.
+    expect(form.props.action).toBe('/#gf_1')
+    expect(form.props.method).toBe('post')
+  })
+
+  it('drops an event handler and a style attribute on the form', () => {
+    const form = single('<form id="ok" onsubmit="alert(1)" style="display:none"></form>')
+    const attrs = form.props.htmlAttributes as Record<string, string>
+
+    expect(attrs.id).toBe('ok')
+    expect(attrs.onsubmit).toBeUndefined()
+    expect(attrs.style).toBeUndefined()
   })
 })

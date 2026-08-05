@@ -25,7 +25,7 @@
 // Re-exported here so publisher-side consumers can keep importing from the
 // publisher barrel without making markdown/template code depend on the full
 // publisher graph.
-export { escapeHtml, isSafeUrl, safeUrl } from '@core/html-sanitize'
+export { escapeHtml, isSafeUrl, isSafeImageUrl, safeImageUrl, safeUrl } from '@core/html-sanitize'
 
 // ---------------------------------------------------------------------------
 // CSS value sanitisation

@@ -68,6 +68,20 @@ describe('buildAssetPlan — img src normalisation', () => {
   })
 })
 
+describe('buildAssetPlan — video URL normalisation', () => {
+  it('normalises base.video videoUrl to a FileMap key and records the asset', () => {
+    const fileMap = makeFileMap({
+      'index.html': { bytes: txt('<html><body><video src="assets/reel.mp4" autoplay muted></video></body></html>') },
+      'assets/reel.mp4': { bytes: txt('video'), mimeType: 'video/mp4' },
+    })
+    const { pagePlan } = makeHtmlPagePlan('index.html', new TextDecoder().decode(fileMap.files['index.html']!.bytes), fileMap)
+    const { normalizedPagePlans, assets } = buildAssetPlan([pagePlan], [], fileMap)
+    const videoNode = Object.values(normalizedPagePlans[0].nodeFragment.nodes).find((node) => node.moduleId === 'base.video')
+    expect(videoNode?.props['videoUrl']).toBe('assets/reel.mp4')
+    expect(assets.some((asset) => asset.sourcePath === 'assets/reel.mp4')).toBe(true)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // HTML attribute asset normalisation
 // ---------------------------------------------------------------------------
@@ -357,5 +371,60 @@ describe('buildAssetPlan — anchor hrefs to HTML pages do not produce assets', 
     expect(assets[0]?.sourcePath).toBe('logo.png')
     expect(assets[0]?.mimeType).toBe('image/png')
     expect(assets.every((a) => a.sourcePath !== 'about.html')).toBe(true)
+  })
+})
+
+describe('external @font-face survival', () => {
+  const faceCss = (css: string): CssFileResult[] => {
+    const fileMap = makeFileMap({ 'a.css': { bytes: txt(css), mimeType: 'text/css' } })
+    const parsed = cssToStyleRules(css, 'a.css')
+    return [{ cssPath: 'a.css', ...parsed } as CssFileResult]
+  }
+
+  const typekit =
+    '@font-face{font-family:"rift";' +
+    'src:url("https://use.typekit.net/af/a3a591/000/27/l?primer=x&fvd=n4&v=3") format("woff2"),' +
+    'url("https://use.typekit.net/af/a3a591/000/27/d?primer=x") format("woff");font-weight:400}'
+
+  it('keeps a Typekit face verbatim when nothing is bundled', () => {
+    // Adobe licenses per domain and the kit follows the domain at cutover, so
+    // the absolute URL is the correct long-term reference. Dropping it left
+    // redrockscafe.com with 26 `rift` usages and no face to satisfy them.
+    const fileMap = makeFileMap({ 'a.css': { bytes: txt(typekit), mimeType: 'text/css' } })
+    const { fonts, warnings } = buildAssetPlan([], faceCss(typekit), fileMap)
+
+    const rift = fonts.find((f) => f.family.toLowerCase() === 'rift')
+    expect(rift).toBeDefined()
+    // Extensionless URL: the format comes from the declared format() hint.
+    expect(rift!.files[0]!.src.startsWith('https://use.typekit.net/')).toBe(true)
+    expect(rift!.files[0]!.format).toBe('woff2')
+    // Still reported: an external face is a cutover dependency.
+    expect(warnings.some((w) => w.kind === 'external-font' && w.message.includes('use.typekit.net'))).toBe(true)
+  })
+
+  it('still prefers a bundled file over an external one', () => {
+    const css =
+      '@font-face{font-family:"mixed";src:url("https://cdn.example.com/x") format("woff2"),' +
+      'url("f.woff2") format("woff2")}'
+    const fileMap = makeFileMap({
+      'a.css': { bytes: txt(css), mimeType: 'text/css' },
+      'f.woff2': { bytes: new Uint8Array([1, 2, 3]), mimeType: 'font/woff2' },
+    })
+    const { fonts } = buildAssetPlan([], faceCss(css), fileMap)
+
+    const mixed = fonts.find((f) => f.family.toLowerCase() === 'mixed')
+    expect(mixed!.files[0]!.src.startsWith('https://')).toBe(false)
+  })
+
+  it('drops a face whose only sources are unusable, with a warning', () => {
+    // embedded-opentype and svg are never chosen: nothing self-hostable here.
+    const css =
+      '@font-face{font-family:"deadfont";src:url("g.eot?#iefix") format("embedded-opentype"),' +
+      'url("g.svg#x") format("svg")}'
+    const fileMap = makeFileMap({ 'a.css': { bytes: txt(css), mimeType: 'text/css' } })
+    const { fonts, warnings } = buildAssetPlan([], faceCss(css), fileMap)
+
+    expect(fonts.find((f) => f.family.toLowerCase() === 'deadfont')).toBeUndefined()
+    expect(warnings.some((w) => w.kind === 'external-font')).toBe(true)
   })
 })

@@ -42,8 +42,6 @@ interface BuildImportPlanInput {
   fileMap: FileMap
   currentSite: SiteDocument
   options?: {
-    /** Tolerance in px for matching older @media max-width queries by frame width. Default: 10. */
-    mediaTolerance?: number
     /**
      * Per-stylesheet import mode, keyed by the top-level linked CSS path
      * (FileMap key). Unlisted paths convert to editable style rules.
@@ -59,7 +57,6 @@ interface BuildImportPlanInput {
  * wizard so the user can preview what will be imported and resolve conflicts.
  */
 export function buildImportPlan({ fileMap, currentSite, options }: BuildImportPlanInput): ImportPlan {
-  const mediaTolerance = options?.mediaTolerance ?? 10
   const warnings: ImportWarning[] = []
   const droppedAtRules: string[] = []
 
@@ -122,7 +119,6 @@ export function buildImportPlan({ fileMap, currentSite, options }: BuildImportPl
   const cssPlan = createCssPlanState()
   const parseOptions = {
     breakpoints: currentSite.breakpoints.map((bp) => ({ id: bp.id, width: bp.width, mediaQuery: bp.mediaQuery })),
-    mediaTolerance,
     collectGoogleFonts,
   }
   for (const cssPath of orderedCssPaths) {
@@ -219,16 +215,42 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
     pageSources: Set<string>
     priority: number
   }>()
-  let nextScriptPriority = 100
+  // Scripts are ordered by their position in the page that introduced them, not
+  // by a counter that runs across pages.
+  //
+  // A global counter cannot express document order once a script is shared. The
+  // externals appear on every page, so the first page processed claims them at
+  // low numbers; a later page's own inline scripts are new, so they are numbered
+  // after everything the earlier pages introduced, and land at the end of the
+  // chain no matter where they sat in their own document. On botanicanc.com that
+  // put `var js_porto_vars` (inline, position 38 of index.html) at priority 226
+  // and the theme.js that reads it at 160, so the theme threw
+  // "js_porto_vars is not defined" at eval time and never initialised. That is
+  // the wp_localize_script contract: the config inline sits immediately before
+  // the script that consumes it.
+  //
+  // Position within the introducing page keeps adjacent scripts adjacent. A
+  // script shared by two pages takes its position from the first one, which is
+  // right whenever the pages share a chain shape, as WordPress themes do.
+  const PRIORITY_BASE = 100
 
-  for (const f of classified) {
-    if (f.role !== 'html') continue
+  // Shallowest page first, so the homepage is the one that introduces the
+  // shared externals and therefore the one whose document order they take.
+  // A script's position can only come from one page, and the homepage is both
+  // the most representative chain and the page every review looks at first.
+  const htmlFiles = classified.filter((f) => f.role === 'html')
+  const orderedHtml = [...htmlFiles].sort((a, b) => {
+    const depth = a.path.split('/').length - b.path.split('/').length
+    return depth || a.path.localeCompare(b.path)
+  })
+
+  for (const f of orderedHtml) {
     const htmlSource = decodeUtf8(f.bytes)
     const { pagePlan, warnings: pageWarnings, inlineCss } = makeHtmlPagePlan(f.path, htmlSource, fileMap)
     warnings.push(...pageWarnings)
     rawPagePlans.push(pagePlan)
     if (inlineCss.trim().length > 0) inlineCssByPage.set(pagePlan.source, inlineCss)
-    for (const pageScript of pagePlan.scripts) {
+    for (const [documentPosition, pageScript] of pagePlan.scripts.entries()) {
       const scriptPath = pageScript.path
       const existing = scriptsByPath.get(scriptPath)
       if (existing) {
@@ -248,11 +270,17 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
         format: pageScript.format,
         dependencies: script.dependencies,
         pageSources: new Set([pagePlan.source]),
-        priority: nextScriptPriority,
+        priority: PRIORITY_BASE + documentPosition,
       })
-      nextScriptPriority += 1
     }
   }
+
+  // Pages themselves keep the order they were classified in; only the script
+  // priorities needed the homepage-first walk above.
+  const classifiedOrder = new Map(htmlFiles.map((f, index) => [f.path, index]))
+  rawPagePlans.sort(
+    (a, b) => (classifiedOrder.get(a.source) ?? 0) - (classifiedOrder.get(b.source) ?? 0),
+  )
 
   const scripts: ImportScript[] = [...scriptsByPath.values()].map((script) => ({
     ...script,

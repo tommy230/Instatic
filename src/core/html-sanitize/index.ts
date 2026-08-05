@@ -113,3 +113,32 @@ export function safeUrl(value: unknown): string {
   if (!isSafeUrl(str)) return '#'
   return escapeHtml(str)
 }
+
+/**
+ * A `data:image/…` URI that is safe as an IMAGE source.
+ *
+ * `data:` is refused everywhere else and stays refused: it can carry a whole
+ * HTML document, and in an `href` the browser would navigate to it. Loaded
+ * through `<img src>` it cannot — a browser does not execute script inside an
+ * image, including SVG fetched as an image — so the one shape this permits is
+ * an image MIME type reached through an image attribute.
+ *
+ * The case that needs it: WordPress lazy-loaders ship an inline SVG of the
+ * right aspect ratio as the placeholder `src`, and the real URL in
+ * `data-lazy-src`. Rejecting it rewrote the placeholder to `#`, which is a
+ * request for the page itself: lakenormanvideographer.com published an `<img
+ * src="#">` that reloaded the document into an image slot.
+ */
+const SAFE_IMAGE_DATA_URI = /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon|svg\+xml)[;,]/i
+
+export function isSafeImageUrl(url: string): boolean {
+  const str = String(url ?? '')
+  return isSafeUrl(str) || SAFE_IMAGE_DATA_URI.test(str.trim())
+}
+
+/** `safeUrl` for an image attribute: adds `data:image/…` and nothing else. */
+export function safeImageUrl(value: unknown): string {
+  const str = String(value ?? '')
+  if (!isSafeImageUrl(str)) return '#'
+  return escapeHtml(str)
+}

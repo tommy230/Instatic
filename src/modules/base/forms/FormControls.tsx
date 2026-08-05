@@ -1,5 +1,6 @@
 import type { ModuleComponentProps } from '@core/module-engine'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
+import { htmlAttributesForReact } from '@modules/base/shared/htmlAttributes'
 
 type FormProps = Record<string, unknown> & {
   formId: string
@@ -86,6 +87,10 @@ export function FormEditor({ children, mcClassName, nodeWrapperProps, props }: M
   const formId = normalizeIdentifierValue(props.formId, 'form')
   return (
     <form
+      // Source attributes first, so the canvas matches the published output:
+      // the module's own props below win any collision, and the shared gate
+      // has already refused reserved names, `style` and event handlers.
+      {...htmlAttributesForReact(props.htmlAttributes)}
       {...nodeWrapperProps}
       className={mcClassName}
       data-instatic-form-id={formId}

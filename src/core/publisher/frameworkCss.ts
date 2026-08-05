@@ -29,9 +29,9 @@ export function buildSiteFrameworkCss(site: SiteDocument): string {
   const { fonts } = site.settings
   // Fonts emit @font-face rules + --font-<slug> tokens. Emit first so any
   // rule that references a font family resolves against an already-declared
-  // face. All `src` URLs are restricted to /uploads/fonts/ upstream — no CDN
-  // linkage in the published page (Constraint: published HTML never reaches
-  // Google).
+  // face. `src` URLs are restricted to /uploads/fonts/ upstream, except for
+  // importer-marked vendor-hosted faces (Typekit) that cannot be rehosted —
+  // the published page still never reaches Google.
   const fontsCss = generateFontsCss(fonts)
   const frameworkCss = generateFrameworkCss(site)
   return [fontsCss, frameworkCss]

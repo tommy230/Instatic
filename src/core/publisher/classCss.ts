@@ -326,6 +326,12 @@ export interface StyleRuleDeclarationLayers {
   stylePriorities?: CSSDeclarationPriorityBag
   contextStyles?: Record<string, Record<string, unknown>>
   contextStylePriorities?: Record<string, CSSDeclarationPriorityBag>
+  /**
+   * Context ids in the order this rule declared them. Set by the importer from
+   * the source stylesheet; absent for editor-authored rules, which fall back to
+   * condition-registry order.
+   */
+  contextOrder?: string[]
 }
 
 export type StyleRuleCssEmitter = (
@@ -381,7 +387,27 @@ export function createStyleRuleCssEmitter(
 
     // Custom conditions emit AFTER base but BEFORE viewport contexts, so
     // viewport-specific overrides keep winning when both contexts match.
-    conditionEntries.sort((a, b) => a.index - b.index)
+    //
+    // Among themselves they emit in the order THIS rule declared them, when it
+    // says. Two equal-specificity `@media` blocks setting the same property are
+    // decided by source order, and registry order is global first-seen order:
+    // on redrockscafe.com another stylesheet used the 639px query first, so
+    // every rule emitted its 639px override ahead of its 767px one and the
+    // narrower query stopped winning. A rule with no declared order (authored
+    // in the editor) keeps registry order, and any context missing from the
+    // list sorts after the ones that are in it.
+    const declaredOrder = layers.contextOrder
+    if (declaredOrder && declaredOrder.length > 0) {
+      const positionOf = new Map(declaredOrder.map((id, index) => [id, index]))
+      const unlisted = declaredOrder.length
+      conditionEntries.sort((a, b) => {
+        const aPos = positionOf.get(a.contextId) ?? unlisted + a.index
+        const bPos = positionOf.get(b.contextId) ?? unlisted + b.index
+        return aPos - bPos
+      })
+    } else {
+      conditionEntries.sort((a, b) => a.index - b.index)
+    }
     for (const { contextId, bag, condition } of conditionEntries) {
       const decls = bagToCSS(bag, options, layers.contextStylePriorities?.[contextId])
       if (!decls) continue

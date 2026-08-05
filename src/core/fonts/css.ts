@@ -7,9 +7,11 @@
  *   - the publisher (emitted into the head `<style>` block of every published
  *     page so the live site never reaches out to fonts.googleapis.com).
  *
- * We never emit external CDN URLs in production output (Constraint #fonts:
- * fonts must be self-hosted). All `src` URLs reference files under
- * `/uploads/fonts/...` that are written to disk at install time.
+ * Installed fonts are self-hosted (Constraint #fonts): their `src` URLs
+ * reference files under `/uploads/fonts/...` written to disk at install time.
+ * The one exception is a face the site importer marked `external` — a
+ * vendor-hosted face (Typekit) whose license forbids rehosting; that `src` is
+ * emitted verbatim as an absolute `https://` URL. Nothing else may.
  */
 
 import type { FontEntry, FontFile, FontFileFormat, SiteFontsSettings } from './schemas'
@@ -125,9 +127,9 @@ export function generateSiteFontsCss(
       if (!file) continue
       // Re-apply the storage-boundary path check at the CSS boundary so a
       // corrupted site document can't leak an untrusted URL into published
-      // HTML. Self-hosted /uploads/ paths and media-backed entries pass;
-      // arbitrary third-party URLs are skipped (no-CDN guarantee).
-      if (!isSafeFontSrc(file.path, file.mediaAssetId)) continue
+      // HTML. Self-hosted /uploads/ paths, media-backed entries, and importer-
+      // marked vendor-hosted faces pass; any other third-party URL is skipped.
+      if (!isSafeFontSrc(file.path, file.mediaAssetId, file.external)) continue
       const rule = fontFaceRule(entry.family, file.variant, file.path, file.format, file.unicodeRange)
       if (rule) blocks.push(rule)
     }

@@ -346,6 +346,7 @@ describe('base.button — render() specifics', () => {
       'disabled',
       'href',
       'htmlAttributes',
+      'icon',
       'label',
       'target',
     ])
@@ -793,8 +794,65 @@ describe('base.image — render() specifics', () => {
     expect(html).toContain('alt=""')
   })
 
-  it('includes loading="lazy" by default', () => {
-    const { html } = renderModule(ImageModule, { src: '/img.jpg' })
+  it('keeps the source srcset, sizes and dimensions on an imported image', () => {
+    // regencywoods-cary.com: the slide backgrounds arrived with all of these and
+    // were published with none, because the module regenerates them from a
+    // library asset and an imported remote image has none.
+    const { html } = renderModule(ImageModule, {
+      src: 'https://example.com/bg.jpg',
+      htmlAttributes: {
+        srcset: 'https://example.com/bg-800.jpg 800w, https://example.com/bg-1600.jpg 1600w',
+        sizes: '(max-width: 800px) 100vw, 1600px',
+        width: '1600',
+        height: '900',
+        fetchpriority: 'high',
+      },
+    })
+
+    expect(html).toContain('srcset="https://example.com/bg-800.jpg 800w')
+    expect(html).toContain('sizes="(max-width: 800px) 100vw, 1600px"')
+    expect(html).toContain('width="1600"')
+    expect(html).toContain('height="900"')
+    expect(html).toContain('fetchpriority="high"')
+  })
+
+  it('does not force loading="lazy" onto an imported image', () => {
+    // A lazy image inside a zero-height container is never fetched, so a slider
+    // waiting on its backgrounds waits forever.
+    const { html } = renderModule(ImageModule, {
+      src: 'https://example.com/bg.jpg',
+      htmlAttributes: { srcset: 'https://example.com/bg-800.jpg 800w', width: '1600' },
+    })
+    expect(html).not.toContain('loading=')
+  })
+
+  it('keeps the source loading value when the source set one', () => {
+    const { html } = renderModule(ImageModule, {
+      src: 'https://example.com/a.jpg',
+      htmlAttributes: { loading: 'lazy', width: '10' },
+    })
+    expect(html.match(/loading="lazy"/g)).toHaveLength(1)
+  })
+
+  it('includes loading="lazy" by default for a library-backed image', () => {
+    // The default applies to images the editor placed, which always resolve to
+    // a library asset. An image with no asset came from an import, and forcing
+    // hints onto it is what kept LayerSlider backgrounds from ever loading.
+    const { html } = renderModule(ImageModule, {
+      src: '/uploads/img.jpg',
+      _resolvedMediaByKey: {
+        src: {
+          publicPath: '/uploads/img.jpg',
+          mimeType: 'image/jpeg',
+          width: 800,
+          height: 600,
+          altText: '',
+          blurHash: null,
+          posterPath: null,
+          variants: [],
+        },
+      },
+    })
     expect(html).toContain('loading="lazy"')
   })
 
@@ -997,6 +1055,44 @@ describe('base.video — render() specifics', () => {
     })
     expect(html).toContain('youtube.com/embed/dQw4w9WgXcQ')
     expect(html).toMatch(/<iframe/)
+  })
+
+  it('renders a trusted Vimeo iframe without converting it to a video element', () => {
+    const out = renderModule(VideoModule, {
+      videoUrl: 'https://player.vimeo.com/video/917233540?dnt=1',
+      title: 'Welcome Message from Pastor Alex',
+      embedWidth: '640',
+      embedHeight: '360',
+      iframeAllow: 'autoplay; fullscreen; picture-in-picture',
+      iframeReferrerPolicy: 'strict-origin-when-cross-origin',
+      allowFullscreen: true,
+    })
+    expect(out.html).toContain('<iframe')
+    expect(out.html).toContain('src="https://player.vimeo.com/video/917233540?dnt=1"')
+    expect(out.html).toContain('width="640"')
+    expect(out.html).toContain('height="360"')
+    expect(out.html).toContain('allowfullscreen')
+    expect(out.html).not.toContain('<video')
+    expect(out.cspSources).toContainEqual({
+      directive: 'frame-src',
+      sources: ['https://player.vimeo.com'],
+    })
+    expect(
+      typeof VideoModule.htmlTag === 'function'
+        ? VideoModule.htmlTag({
+            ...VideoModule.defaults,
+            videoUrl: 'https://player.vimeo.com/video/917233540',
+            poster: '/uploads/poster.webp',
+          })
+        : VideoModule.htmlTag,
+    ).toBe('iframe')
+  })
+
+  it('does not trust a lookalike Vimeo hostname', () => {
+    const { html } = renderModule(VideoModule, {
+      videoUrl: 'https://player.vimeo.com.evil.example/video/917233540',
+    })
+    expect(html).not.toContain('<iframe')
   })
 
   it('wraps the YouTube iframe in a poster facade when a poster is set', () => {

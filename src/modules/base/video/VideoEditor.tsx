@@ -11,9 +11,9 @@
  *   - the same `playsinline` / `autoplay` / `loop` / `muted` /
  *     `controls` props.
  *
- * For YouTube URLs the canvas paints the responsive poster on top of a
- * `loading="lazy"` iframe — same JS-free facade the published HTML
- * uses, so authors get an honest preview of what visitors will see.
+ * Trusted provider URLs render as lazy iframes. YouTube can additionally use
+ * a responsive poster facade; Vimeo and Cloudflare Stream retain their player
+ * URLs and safe iframe attributes.
  *
  * Component-only file so React Fast Refresh can hot-patch edits without
  * re-running module registration. The `youtube.ts` sibling owns the URL
@@ -27,6 +27,7 @@ import { buildVariantSrcset, pickVariantUrl } from '@admin/pages/media/utils/var
 import { CanvasModulePlaceholder } from '@ui/components/CanvasModulePlaceholder'
 import { VideoSolidIcon } from 'pixel-art-icons/icons/video-solid'
 import { parseYoutubeId, youtubeEmbedUrl } from './youtube'
+import { trustedVideoEmbed } from '@core/media/trustedVideoEmbed'
 import type { VideoStoredProps } from './props'
 
 // Canvas tile width hint — drives the poster variant pick. Videos in the
@@ -73,6 +74,7 @@ const FACADE_SHIELD_STYLE: CSSProperties = {
 
 export const VideoEditor: React.FC<ModuleComponentProps<VideoStoredProps>> = ({ props, mcClassName, nodeWrapperProps }) => {
   const youtubeId = parseYoutubeId(props.videoUrl || '')
+  const trustedEmbed = trustedVideoEmbed(props.videoUrl || '')
 
   // Resolve both assets in parallel via the per-path cache. For YouTube
   // URLs the videoUrl isn't a library asset, so that lookup returns null —
@@ -133,6 +135,28 @@ export const VideoEditor: React.FC<ModuleComponentProps<VideoStoredProps>> = ({ 
             pointer-events:none, YouTube's player can still swallow
             canvas interaction. The shield guarantees clicks reach the
             NodeRenderer wrapper so the module stays selectable. */}
+        <span aria-hidden="true" style={FACADE_SHIELD_STYLE} />
+      </div>
+    )
+  }
+
+  if (trustedEmbed) {
+    const iframeProps: React.IframeHTMLAttributes<HTMLIFrameElement> = {
+      src: trustedEmbed.src,
+      title: props.title || 'Video',
+      loading: 'lazy',
+      frameBorder: '0',
+      width: /^\d+$/.test(props.embedWidth) ? props.embedWidth : undefined,
+      height: /^\d+$/.test(props.embedHeight) ? props.embedHeight : undefined,
+      allow: props.iframeAllow || undefined,
+      referrerPolicy:
+        (props.iframeReferrerPolicy as React.HTMLAttributeReferrerPolicy) || undefined,
+      allowFullScreen: props.allowFullscreen,
+      style: FACADE_FRAME_STYLE,
+    }
+    return (
+      <div {...nodeWrapperProps} className={mcClassName} style={FACADE_WRAP_STYLE}>
+        <iframe {...iframeProps} />
         <span aria-hidden="true" style={FACADE_SHIELD_STYLE} />
       </div>
     )

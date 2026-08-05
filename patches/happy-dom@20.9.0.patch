@@ -1,0 +1,243 @@
+diff --git a/node_modules/happy-dom/.bun-tag-3fab3259235153ac b/.bun-tag-3fab3259235153ac
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/happy-dom/.bun-tag-915bc01ee120b609 b/.bun-tag-915bc01ee120b609
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/lib/css/declaration/property-manager/CSSStyleDeclarationPropertySetParser.js b/lib/css/declaration/property-manager/CSSStyleDeclarationPropertySetParser.js
+index 06dea1af37a0591454eca42a7c11e3cffcea35b5..285ead6acbecf735e193d2231baec1de52028534 100644
+--- a/lib/css/declaration/property-manager/CSSStyleDeclarationPropertySetParser.js
++++ b/lib/css/declaration/property-manager/CSSStyleDeclarationPropertySetParser.js
+@@ -76,7 +76,18 @@ const DISPLAY = [
+     /* Other values */
+     'table',
+     'table-row',
+-    'list-item'
++    'list-item',
++    /* Internal table display types. Omitted upstream, which silently drops the
++       declaration: a legacy `display: table-cell` layout parses to an empty
++       block and re-renders as `block`. */
++    'table-cell',
++    'table-row-group',
++    'table-header-group',
++    'table-footer-group',
++    'table-column',
++    'table-column-group',
++    'table-caption',
++    'inline-table'
+ ];
+ const BORDER_IMAGE_REPEAT = ['stretch', 'repeat', 'round', 'space'];
+ const TEXT_TRANSFORM = [
+@@ -1726,22 +1737,46 @@ export default class CSSStyleDeclarationPropertySetParser {
+             ...this.getBackgroundClip('initial', important),
+             ...this.getBackgroundColor('initial', important)
+         };
+-        const parts = CSSStyleDeclarationValueUtility.splitBySpace(value.replace(/\s+\/\s+/g, '/'));
+-        const backgroundPositions = [];
+-        for (const part of parts) {
+-            if (!part.startsWith('url') && part.includes('/')) {
+-                const [position, size] = part.split('/');
+-                const backgroundPositionX = this.getBackgroundPositionX(position, important);
+-                const backgroundPositionY = this.getBackgroundPositionY(position, important);
+-                const backgroundSize = this.getBackgroundSize(size, important);
+-                if ((!backgroundPositionX && !backgroundPositionY) || !backgroundSize) {
+-                    return null;
++        /* `<position> / <bg-size>` is a layer-level construct: the position on
++           the left of the slash may be up to four tokens and the size on the
++           right up to two. Upstream folded the slash into whichever *single*
++           whitespace-delimited token happened to contain it, so
++           `… no-repeat scroll 50% 50% / 7px 11px` resolved to
++           position `50% 50% 11px` and size `7px`. Tokenise the slash out
++           instead and let the surrounding tokens fall on the correct side. */
++        const parts = [];
++        for (const rawPart of CSSStyleDeclarationValueUtility.splitBySpace(value)) {
++            if (rawPart.includes('(') || !rawPart.includes('/')) {
++                parts.push(rawPart);
++                continue;
++            }
++            const pieces = rawPart.split('/');
++            for (let i = 0; i < pieces.length; i++) {
++                if (i > 0) {
++                    parts.push('/');
+                 }
+-                if (backgroundPositionY) {
+-                    backgroundPositions.push(backgroundPositionY['background-position-y'].value);
++                if (pieces[i]) {
++                    parts.push(pieces[i]);
+                 }
+-                else if (backgroundPositionX) {
+-                    backgroundPositions.push(backgroundPositionX['background-position-x'].value);
++            }
++        }
++        const backgroundPositions = [];
++        for (let index = 0; index < parts.length; index++) {
++            const part = parts[index];
++            if (part === '/') {
++                const sizeParts = [];
++                while (index + 1 < parts.length &&
++                    sizeParts.length < 2 &&
++                    parts[index + 1] !== '/' &&
++                    this.getBackgroundSize(sizeParts.concat(parts[index + 1]).join(' '), important)) {
++                    sizeParts.push(parts[index + 1]);
++                    index++;
++                }
++                const backgroundSize = sizeParts.length
++                    ? this.getBackgroundSize(sizeParts.join(' '), important)
++                    : null;
++                if (!backgroundPositions.length || !backgroundSize) {
++                    return null;
+                 }
+                 Object.assign(properties, backgroundSize);
+             }
+diff --git a/lib/css/declaration/property-manager/CSSStyleDeclarationValueParser.js b/lib/css/declaration/property-manager/CSSStyleDeclarationValueParser.js
+index 209248945b32e2fd650cf2a8fea62fa18341e619..44421c925f5c421f5601dc95706ac62fea68a6fa 100644
+--- a/lib/css/declaration/property-manager/CSSStyleDeclarationValueParser.js
++++ b/lib/css/declaration/property-manager/CSSStyleDeclarationValueParser.js
+@@ -3,7 +3,11 @@ const COLOR_REGEXP = /^#([0-9a-fA-F]{3,4}){1,2}$|^rgb\(([^)]*)\)$|^rgba\(([^)]*)
+ const LENGTH_REGEXP = /^(0|[-+]?[0-9]*\.?[0-9]+)(in|cm|em|mm|pt|pc|px|ex|rem|vh|vw|ch|vw|vh|vmin|vmax|Q)$/;
+ const PERCENTAGE_REGEXP = /^[-+]?[0-9]*\.?[0-9]+%$/;
+ const DEGREE_REGEXP = /^[0-9]+deg$/;
+-const URL_REGEXP = /^url\(\s*([^)]*)\s*\)$/;
++/* Upstream used `[^)]*`, which cannot match a quoted URL that contains a `)` —
++   e.g. an inline `data:image/svg+xml` background whose markup holds
++   `transform="rotate(90 39.5 0.5)"`. The whole declaration was then dropped.
++   `[\s\S]*` is greedy and anchored, so it still spans to the final `)`. */
++const URL_REGEXP = /^url\(\s*([\s\S]*?)\s*\)$/;
+ const INTEGER_REGEXP = /^[0-9]+$/;
+ const FLOAT_REGEXP = /^[0-9.]+$/;
+ const CALC_REGEXP = /^calc\([^^)]+\)$/;
+@@ -360,27 +364,48 @@ export default class CSSStyleDeclarationValueParser {
+             return null;
+         }
+         let url = result[1].trim();
+-        if ((url[0] === '"' || url[0] === "'") && url[0] !== url[url.length - 1]) {
+-            return null;
+-        }
+-        if (url[0] === '"' || url[0] === "'") {
++        /* A *quoted* url() token is a CSS string: per css-values-4 it may hold
++           spaces, parentheses and the opposite quote character. Upstream applied
++           the unquoted-token restrictions to quoted URLs too, so any
++           `url('data:image/svg+xml;utf8,<svg ... width="40">…</svg>')` was
++           rejected and the entire declaration silently disappeared. */
++        const quote = url[0] === '"' || url[0] === "'" ? url[0] : null;
++        if (quote) {
++            if (url.length < 2 || url[url.length - 1] !== quote) {
++                return null;
++            }
+             url = url.substring(1, url.length - 1);
+         }
+         for (let i = 0; i < url.length; i++) {
+             switch (url[i]) {
++                case '\n':
++                    return null;
+                 case '(':
+                 case ')':
+                 case ' ':
+                 case '\t':
+-                case '\n':
++                    if (!quote) {
++                        return null;
++                    }
++                    break;
+                 case "'":
+                 case '"':
+-                    return null;
++                    /* Unquoted: never allowed. Quoted: the delimiter itself
++                       cannot appear unescaped inside its own string. */
++                    if (!quote || url[i] === quote) {
++                        return null;
++                    }
++                    break;
+                 case '\\':
+                     i++;
+                     break;
+             }
+         }
++        if (url.includes('"')) {
++            return url.includes("'")
++                ? `url("${url.replace(/"/g, '\\"')}")`
++                : `url('${url}')`;
++        }
+         return `url("${url}")`;
+     }
+     /**
+diff --git a/lib/css/utilities/CSSParser.js b/lib/css/utilities/CSSParser.js
+index 47abf0b360d6fe3c9d47482cba8a5f8806471b5a..5ef8d0ce3df5372fa376f25a429425c7e16b2922 100644
+--- a/lib/css/utilities/CSSParser.js
++++ b/lib/css/utilities/CSSParser.js
+@@ -10,6 +10,47 @@ import SelectorParser from '../../query-selector/SelectorParser.js';
+ import CSSRuleTypeEnum from '../CSSRuleTypeEnum.js';
+ import CSSScopeRule from '../rules/CSSScopeRule.js';
+ const COMMENT_REGEXP = /\/\*[\s\S]*?\*\//gm;
++/**
++ * Index of the first `;` in `text` that is not inside a string or parentheses,
++ * or -1. Used to find where a statement at-rule (`@import`, `@charset`,
++ * `@namespace`, `@layer a, b;`) ends — those have no block, so the brace-only
++ * scanner below never sees a boundary for them.
++ */
++function indexOfStatementEnd(text) {
++    let quote = null;
++    let depth = 0;
++    for (let i = 0; i < text.length; i++) {
++        const char = text[i];
++        if (char === '\\') {
++            i++;
++            continue;
++        }
++        if (quote) {
++            if (char === quote) {
++                quote = null;
++            }
++            continue;
++        }
++        if (char === '"' || char === "'") {
++            quote = char;
++            continue;
++        }
++        if (char === '(') {
++            depth++;
++            continue;
++        }
++        if (char === ')') {
++            if (depth > 0) {
++                depth--;
++            }
++            continue;
++        }
++        if (char === ';' && depth === 0) {
++            return i;
++        }
++    }
++    return -1;
++}
+ /**
+  * CSS parser.
+  */
+@@ -41,7 +82,26 @@ export default class CSSParser {
+         let match;
+         while ((match = regExp.exec(css))) {
+             if (match[0] === '{') {
+-                const selectorText = css.substring(lastIndex, match.index).trim();
++                let selectorText = css.substring(lastIndex, match.index).trim();
++                /* This scanner only looks for `{` and `}`, so a statement
++                   at-rule — `@import url(…);`, `@charset "utf-8";`,
++                   `@namespace …;`, `@layer a, b;` — has no boundary of its own
++                   and stays glued to the FOLLOWING rule's selector text. That
++                   text then starts with `@`, falls into the "unknown rule"
++                   branch below, and the real rule after it is silently
++                   discarded. Measured on a Bridge child theme whose stylesheet
++                   opens with `@import url("…/bridge/style.css");`: the very
++                   next rule, `.section_inner_wrap .wpb_wrapper{width:1100px;
++                   margin:0 auto}`, never reached the document, so the page's
++                   1100px content cap was gone. Consume the leading statement
++                   at-rules here instead. */
++                while (selectorText[0] === '@') {
++                    const statementEnd = indexOfStatementEnd(selectorText);
++                    if (statementEnd === -1) {
++                        break;
++                    }
++                    selectorText = selectorText.substring(statementEnd + 1).trim();
++                }
+                 if (selectorText[0] === '@') {
+                     const ruleParts = selectorText.split(' ');
+                     const ruleType = ruleParts[0];

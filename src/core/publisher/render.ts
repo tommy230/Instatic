@@ -36,7 +36,18 @@ import { PUBLISHER_RESET_CSS } from './reset'
 import { buildSiteFrameworkCss } from './frameworkCss'
 import type { SiteCssBundle } from './siteCssBundle'
 import { escapeHtml, isSafeUrl } from './utils'
-import { addCspSources, createBaseCspPlan, cspMetaTag } from './cspPlan'
+import {
+  addCspSources,
+  createBaseCspPlan,
+  cspMetaTag,
+  cspDirectiveNames,
+  ensureSelfInFetchDirectives,
+} from './cspPlan'
+import {
+  deriveCspSourcesFromHtml,
+  siteAssetCspSources,
+  siteConfiguredCspSources,
+} from './cspDerivation'
 import type { PublishedPageRuntimeAssets } from '@core/site-runtime/schemas'
 import { hasPublishedRuntimeScripts, scriptTagsForRuntimeAssets } from '@core/site-runtime'
 import { renderNode } from './renderNode'
@@ -310,7 +321,48 @@ interface DocumentMetaTags {
   pageTitle: string
   metaDesc: string
   favicon: string
+  extraHeadLinks: string
   langAttr: string
+}
+
+/**
+ * `rel` values an operator may add to the head. All are declarative resource
+ * hints or stylesheets; nothing here can execute script, so a mistyped or
+ * hostile value cannot escalate past "loads a stylesheet we already had to
+ * allow in the CSP".
+ */
+const ALLOWED_EXTRA_LINK_RELS = new Set([
+  'stylesheet',
+  'preconnect',
+  'dns-prefetch',
+  'preload',
+  'prefetch',
+])
+
+/** `crossorigin` is an enumerated attribute; anything else is dropped. */
+const ALLOWED_CROSSORIGIN = new Set(['anonymous', 'use-credentials', ''])
+
+function buildExtraHeadLinks(site: SiteDocument): string {
+  const links = site.settings.extraHeadLinks
+  if (!links || links.length === 0) return ''
+  const tags: string[] = []
+  for (const link of links) {
+    if (!ALLOWED_EXTRA_LINK_RELS.has(link.rel)) continue
+    if (!link.href || !isSafeUrl(link.href)) continue
+    // Escaping already makes an injected `">` inert, but a URL carrying quotes,
+    // angle brackets, or whitespace is malformed regardless — emitting it as an
+    // escaped mess only hides the misconfiguration. Drop it.
+    if (/["'<>\s]/.test(link.href)) continue
+    let tag = `\n  <link rel="${escapeHtml(link.rel)}" href="${escapeHtml(link.href)}"`
+    if (link.crossorigin != null && ALLOWED_CROSSORIGIN.has(link.crossorigin)) {
+      tag += link.crossorigin === ''
+        ? ' crossorigin'
+        : ` crossorigin="${escapeHtml(link.crossorigin)}"`
+    }
+    if (link.as && /^[a-z]+$/.test(link.as)) tag += ` as="${escapeHtml(link.as)}"`
+    tags.push(`${tag}>`)
+  }
+  return tags.join('')
 }
 
 function buildDocumentMetaTags(site: SiteDocument, page: Page): DocumentMetaTags {
@@ -326,6 +378,7 @@ function buildDocumentMetaTags(site: SiteDocument, page: Page): DocumentMetaTags
     pageTitle: escapeHtml(settings.metaTitle ?? page.title ?? site.name),
     metaDesc,
     favicon,
+    extraHeadLinks: buildExtraHeadLinks(site),
     langAttr: escapeHtml(settings.language ?? 'en'),
   }
 }
@@ -407,13 +460,33 @@ function buildRuntimeAssetsBlock(
  * inline importmap additionally needs its base64 SHA-256 listed so strict CSP
  * doesn't reject it. The server-side injection pipeline merges plugin / media /
  * form-runtime sources into this same plan downstream.
+ *
+ * Three source channels feed the plan, all as unions (`addCspSources`) so the
+ * emitted policy is byte-identical regardless of merge order:
+ *
+ *   1. `moduleCspSources` — declared by module `render()` outputs during the
+ *      node walk (e.g. base.video's YouTube frame-src).
+ *   2. Derivation from `bodyHtml` + the provider-implication table
+ *      (`./cspDerivation`). This is the channel classic-imported pages depend
+ *      on: their third-party `<script src>` / `<iframe src>` markup comes from
+ *      the imported document, not from a module that could declare anything.
+ *   3. The per-site escape hatch, `site.settings.contentSecurityPolicy
+ *      .extraSources`, for providers the table doesn't know.
+ *
+ * Channels 2 and 3 contribute NOTHING for a page with no external references
+ * and no site config, so the strict default policy stays byte-identical.
  */
 function buildContentSecurityPolicy(
   anyScriptTag: boolean,
   importmap: PublishedRuntimePackageImportmap | undefined,
   moduleCspSources: ReadonlyMap<string, ReadonlySet<string>>,
+  bodyHtml: string,
+  site: SiteDocument,
 ): string {
   const plan = createBaseCspPlan({ anyScriptTag, importmapSha: importmap?.sha256 })
+  // What the base policy decided for itself, so the invariant below can tell a
+  // deliberate `frame-src 'none'` from a directive a later channel invented.
+  const baseDirectives = cspDirectiveNames(plan)
   // Merge per-page CSP requirements declared by module render() outputs.
   // addCspSources automatically drops the lone 'none' when real sources are
   // added, so frame-src 'none' becomes frame-src <origins> on pages that
@@ -422,6 +495,25 @@ function buildContentSecurityPolicy(
   for (const [directive, sources] of moduleCspSources) {
     addCspSources(plan, directive, sources)
   }
+  for (const { directive, sources } of deriveCspSourcesFromHtml(bodyHtml)) {
+    addCspSources(plan, directive, sources)
+  }
+  // Head links and vendor-hosted font faces never appear in the body HTML, so
+  // the markup pass above cannot see them.
+  for (const { directive, sources } of siteAssetCspSources(site)) {
+    addCspSources(plan, directive, sources)
+  }
+  for (const { directive, sources } of siteConfiguredCspSources(
+    site.settings.contentSecurityPolicy?.extraSources,
+  )) {
+    addCspSources(plan, directive, sources)
+  }
+
+  // Last, after every channel: a directive any of them created from
+  // third-party origins alone would otherwise revoke same-origin access for
+  // its resource type, because a present directive replaces default-src.
+  ensureSelfInFetchDirectives(plan, baseDirectives)
+
   return `\n  ${cspMetaTag(plan)}`
 }
 
@@ -440,6 +532,7 @@ interface AssembledDocumentParts {
   pageTitle: string
   metaDesc: string
   favicon: string
+  extraHeadLinks: string
   styleHeadHtml: string
   importmapTag: string
   headRuntimeScripts: string
@@ -458,7 +551,7 @@ function assembleHtmlDocument(parts: AssembledDocumentParts): string {
     `<head>\n` +
     `  <meta charset="UTF-8">\n` +
     `  <meta name="viewport" content="width=device-width, initial-scale=1.0">${parts.csp}\n` +
-    `  <title>${parts.pageTitle}</title>${parts.metaDesc}${parts.favicon}\n` +
+    `  <title>${parts.pageTitle}</title>${parts.metaDesc}${parts.favicon}${parts.extraHeadLinks}\n` +
     parts.styleHeadHtml +
     lineOrEmpty(parts.importmapTag) +
     lineOrEmpty(parts.headRuntimeScripts) +
@@ -557,7 +650,13 @@ export function publishPage(
 
   const meta = buildDocumentMetaTags(site, page)
   const runtime = buildRuntimeAssetsBlock(options, acc)
-  const csp = buildContentSecurityPolicy(runtime.anyScriptTag, runtime.importmap, acc.cspSources)
+  const csp = buildContentSecurityPolicy(
+    runtime.anyScriptTag,
+    runtime.importmap,
+    acc.cspSources,
+    bodyHtml,
+    site,
+  )
 
   const html = assembleHtmlDocument({
     langAttr: meta.langAttr,
@@ -565,6 +664,7 @@ export function publishPage(
     pageTitle: meta.pageTitle,
     metaDesc: meta.metaDesc,
     favicon: meta.favicon,
+    extraHeadLinks: meta.extraHeadLinks,
     styleHeadHtml,
     importmapTag: runtime.importmapTag,
     headRuntimeScripts: runtime.headRuntimeScripts,

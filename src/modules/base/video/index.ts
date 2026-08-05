@@ -3,7 +3,7 @@
  *
  * One field decides how the video is sourced: `videoUrl`. The publisher
  * looks at the URL and emits the right markup:
- *   - YouTube URL (watch / youtu.be / embed / shorts) → `<iframe>`.
+ *   - Trusted provider URL (YouTube, Vimeo, Cloudflare Stream) → `<iframe>`.
  *   - Anything else (a media-library `/uploads/...` path or an external
  *     `.mp4` / `.webm` URL) → `<video>`.
  *
@@ -29,6 +29,7 @@ import type { RenderResolvedMedia } from '@core/publisher'
 import { Value } from '@core/utils/typeboxHelpers'
 import { VideoSolidIcon } from 'pixel-art-icons/icons/video-solid'
 import { safeUrl } from '@modules/base/utils/escape'
+import { trustedVideoEmbed } from '@core/media/trustedVideoEmbed'
 import { buildMediaSrcset, pickMediaVariantUrl } from '@modules/base/utils/mediaAttrs'
 import { VideoEditor } from './VideoEditor'
 import { parseYoutubeId, youtubeEmbedUrl } from './youtube'
@@ -56,7 +57,7 @@ type VideoProps = VideoStoredProps & {
 export const VideoModule: ModuleDefinition<VideoProps> = {
   id: 'base.video',
   name: 'Video',
-  description: 'Embed an uploaded video, an external video URL, or a YouTube link.',
+  description: 'Embed an uploaded video, an external video URL, or a trusted provider link.',
   category: 'Media',
   version: '4.0.0',
   icon: VideoSolidIcon,
@@ -70,7 +71,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
       type: 'media',
       mediaKind: 'video',
       label: 'Video',
-      description: 'Pick a file from the media library, paste an external URL, or paste a YouTube link.',
+      description: 'Pick a file, paste an external URL, or paste a YouTube, Vimeo, or Cloudflare Stream link.',
     },
     poster: {
       type: 'image',
@@ -91,7 +92,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
         { label: 'Auto', value: 'auto' },
       ],
     },
-    title: { type: 'text', label: 'Video title', description: 'Accessibility label for the embedded YouTube player iframe.' },
+    title: { type: 'text', label: 'Video title', description: 'Accessibility label for an embedded player iframe.' },
     noRelatedVideos: { type: 'toggle', label: 'Hide related videos', description: 'Adds rel=0 to suppress YouTube recommended videos after playback.' },
   },
 
@@ -109,6 +110,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
       // poster the iframe is the root.
       return String(props.poster ?? '') ? 'div' : 'iframe'
     }
+    if (trustedVideoEmbed(url)) return 'iframe'
     return 'video'
   },
 
@@ -124,6 +126,20 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
         title: String(props.title || 'YouTube video'),
         posterUrl: String(props.poster ?? ''),
         posterMedia: props._resolvedMediaByKey?.poster ?? null,
+      })
+    }
+
+    const trustedEmbed = trustedVideoEmbed(rawUrl)
+    if (trustedEmbed) {
+      return renderTrustedVideoEmbed({
+        src: trustedEmbed.src,
+        frameOrigins: trustedEmbed.frameOrigins,
+        title: String(props.title || 'Video'),
+        width: String(props.embedWidth ?? ''),
+        height: String(props.embedHeight ?? ''),
+        allow: String(props.iframeAllow ?? ''),
+        referrerPolicy: String(props.iframeReferrerPolicy ?? ''),
+        allowFullscreen: Boolean(props.allowFullscreen),
       })
     }
 
@@ -162,6 +178,45 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
 
     return { html: `<video ${attrs.join(' ')}></video>` }
   },
+}
+
+const REFERRER_POLICIES = new Set([
+  'no-referrer',
+  'no-referrer-when-downgrade',
+  'origin',
+  'origin-when-cross-origin',
+  'same-origin',
+  'strict-origin',
+  'strict-origin-when-cross-origin',
+  'unsafe-url',
+])
+
+function renderTrustedVideoEmbed(input: {
+  src: string
+  frameOrigins: string[]
+  title: string
+  width: string
+  height: string
+  allow: string
+  referrerPolicy: string
+  allowFullscreen: boolean
+}): RenderOutput {
+  const src = safeUrl(input.src)
+  if (!src) return { html: '' }
+
+  const attrs = [`src="${src}"`, `title="${input.title}"`, 'loading="lazy"', 'frameborder="0"']
+  if (/^\d+$/.test(input.width)) attrs.push(`width="${input.width}"`)
+  if (/^\d+$/.test(input.height)) attrs.push(`height="${input.height}"`)
+  if (input.allow) attrs.push(`allow="${input.allow}"`)
+  if (REFERRER_POLICIES.has(input.referrerPolicy)) {
+    attrs.push(`referrerpolicy="${input.referrerPolicy}"`)
+  }
+  if (input.allowFullscreen) attrs.push('allowfullscreen')
+
+  return {
+    html: `<iframe ${attrs.join(' ')}></iframe>`,
+    cspSources: [{ directive: 'frame-src', sources: input.frameOrigins }],
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,19 @@ export const ButtonEditor: React.FC<ModuleComponentProps<ButtonStoredProps>> = (
 }) => {
   const label = props.label || 'Button'
   const htmlAttrs = htmlAttributesForReact(props.htmlAttributes)
+  // Inline-SVG icon, sanitised at the write boundary (`sanitizeSvg`). Rendered
+  // via dangerouslySetInnerHTML alongside the label — the same shape base.svg
+  // uses on the canvas — so the icon is visible while editing, not only after
+  // publish. Suppressed during inline label editing: a contentEditable element
+  // owns its children, so injected markup would fight the caret.
+  const icon = String(props.icon ?? '').trim()
+  const iconNode = icon
+    ? React.createElement('span', {
+        key: 'icon',
+        style: { display: 'contents' },
+        dangerouslySetInnerHTML: { __html: icon },
+      })
+    : null
   const anchor = resolveButtonAnchor(props.href)
   // React.createElement (not JSX) so the editable element's generic
   // `Ref<HTMLElement>` is accepted — matching TextEditor / LinkEditor.
@@ -39,6 +52,7 @@ export const ButtonEditor: React.FC<ModuleComponentProps<ButtonStoredProps>> = (
         className: mcClassName,
         ...(inlineEdit ? inlineEditableElementProps(inlineEdit) : {}),
       },
+      inlineEdit ? undefined : iconNode,
       inlineEdit ? undefined : label,
     )
   }
@@ -53,6 +67,7 @@ export const ButtonEditor: React.FC<ModuleComponentProps<ButtonStoredProps>> = (
       disabled: inlineEdit ? undefined : props.disabled,
       ...(inlineEdit ? inlineEditableElementProps(inlineEdit) : {}),
     },
+    inlineEdit ? undefined : iconNode,
     inlineEdit ? undefined : label,
   )
 }

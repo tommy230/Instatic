@@ -16,6 +16,11 @@ import { CheckboxSolidIcon } from 'pixel-art-icons/icons/checkbox-solid'
 import { SendSolidIcon } from 'pixel-art-icons/icons/send-solid'
 import { WarningDiamondSolidIcon } from 'pixel-art-icons/icons/warning-diamond-solid'
 import {
+  HtmlAttributesPropSchemaOptions,
+  htmlAttributesAttr,
+  htmlAttributesControl,
+} from '@modules/base/shared/htmlAttributes'
+import {
   CheckboxEditor,
   FormEditor,
   FormMessageEditor,
@@ -45,6 +50,25 @@ const FormPropsSchema = Type.Object({
   redirectUrl: Type.String({ default: '' }),
   honeypotName: Type.String({ default: 'company' }),
   minSubmitSeconds: Type.Number({ default: 2 }),
+  /**
+   * The source form element's own attributes — `id`, `role`, `aria-*`, and any
+   * other inert attribute the theme might hang styling or semantics on.
+   *
+   * Without this the `<form>` was the one element in an imported page that
+   * arrived stripped: its id went into `data-instatic-form-id` and the real
+   * attribute was never emitted. Themes style search and contact forms by id
+   * constantly, so the rules keyed on it stopped matching and the controls fell
+   * back to whatever generic input rule was underneath. On
+   * employeeassessmentgroup.com the WooCommerce product search lost
+   * `id="searchform"`, so `.widget #searchform input[type=text]` (float: left,
+   * width: 74%, transparent, borderless) no longer applied: the field took the
+   * generic `.woocommerce input[type=text]` styling and the floated magnifier
+   * dropped onto its own line.
+   *
+   * Sanitised by the shared gate, which drops event handlers, `style`, `class`
+   * (class names travel as `classIds`) and anything carrying an executable URL
+   * scheme.
+   */
   htmlAttributes: Type.Record(Type.String(), Type.String(), HtmlAttributesPropSchemaOptions),
 })
 
@@ -150,6 +174,16 @@ const SubmitPropsSchema = Type.Object({
   label: Type.String({ default: 'Submit' }),
   disabled: Type.Boolean({ default: false }),
   formId: Type.String({ default: '' }),
+  /**
+   * Attributes carried over from the source element.
+   *
+   * A rebuilt submit button that keeps only its label is a different element to
+   * every theme rule written against the original: redrockscafe.com's newsletter
+   * button lost `id="gform_submit_button_11"` and `class="gform_button button"`,
+   * and with them the gold background the theme gives that form. The identity is
+   * the styling contract, so it travels with the node.
+   */
+  htmlAttributes: Type.Record(Type.String(), Type.String(), HtmlAttributesPropSchemaOptions),
 })
 
 type SubmitProps = Static<typeof SubmitPropsSchema>
@@ -167,7 +201,8 @@ export const FormModule: ModuleDefinition<FormProps> = {
   name: 'Form',
   description: 'A CMS-native or custom HTML form.',
   category: 'Forms',
-  version: '1.0.0',
+  // 1.1.0: carries the source element's own `htmlAttributes`.
+  version: '1.1.0',
   icon: FileTextSolidIcon,
   trusted: true,
   canHaveChildren: true,
@@ -200,6 +235,11 @@ export const FormModule: ModuleDefinition<FormProps> = {
   htmlTag: 'form',
   render: (props, renderedChildren) => {
     const formId = normalizeIdentifierValue(props.formId, 'form')
+    // Source attributes first, module-owned attributes after, matching every
+    // other module: the module's own emit is the one that has to win, and the
+    // shared gate has already refused the reserved `data-instatic-*` names a
+    // source could have used to shadow it.
+    const custom = htmlAttributesAttr(props.htmlAttributes)
     const attrs = [
       `data-instatic-form-id="${formId}"`,
       `data-instatic-form-mode="${props.mode}"`,
@@ -209,14 +249,11 @@ export const FormModule: ModuleDefinition<FormProps> = {
       props.successBehavior === 'message' ? `data-instatic-success-message="${props.successMessage}"` : '',
       props.successBehavior === 'redirect' ? `data-instatic-success-redirect="${safeUrl(props.redirectUrl)}"` : '',
     ].filter(Boolean).join(' ')
-    // Authored attributes (progressive-enhancement hooks, ARIA, data-*) ride
-    // alongside the generated form wiring instead of being dropped.
-    const authored = htmlAttributesAttr(props.htmlAttributes)
     const honeypot = props.mode === 'cms'
       ? `<input type="text" name="${props.honeypotName}" autocomplete="off" tabindex="-1" data-instatic-honeypot hidden>`
       : ''
     return {
-      html: `<form ${attrs}${authored}>${honeypot}${renderedChildren.join('')}</form>`,
+      html: `<form${custom} ${attrs}>${honeypot}${renderedChildren.join('')}</form>`,
       // CMS-native forms need the browser runtime; custom-action forms are
       // plain HTML form submissions and ship zero JS.
       ...(props.mode === 'cms' ? { js: FORM_RUNTIME_JS } : {}),
@@ -427,13 +464,16 @@ export const SubmitModule: ModuleDefinition<SubmitProps> = {
     label: { type: 'text', label: 'Label' },
     disabled: { type: 'toggle', label: 'Disabled' },
     formId: { type: 'text', label: 'Form ID override', normalize: 'identifier' },
+    htmlAttributes: htmlAttributesControl(),
   },
   propsSchema: SubmitPropsSchema,
   defaults: Value.Create(SubmitPropsSchema),
   component: SubmitEditor,
   htmlTag: 'button',
   render: (props) => ({
-    html: `<button type="submit"${attrs([['form', normalizeIdentifierValue(props.formId)]])}${booleanAttrs(props, ['disabled'])}>${props.label}</button>`,
+    // Source attributes first, matching base.button: they carry the id and
+    // class a theme's selectors are written against.
+    html: `<button${htmlAttributesAttr(props.htmlAttributes)} type="submit"${attrs([['form', normalizeIdentifierValue(props.formId)]])}${booleanAttrs(props, ['disabled'])}>${props.label}</button>`,
   }),
 }
 
