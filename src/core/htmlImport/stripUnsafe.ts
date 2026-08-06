@@ -7,7 +7,6 @@
  *   - <link> elements                 → counted as `stylesheetLinks` or `otherLinks`
  *   - <meta> and <base> elements      → counted as `metadataElements`
  *   - Legacy/plugin embeds            → counted as `embeddedElements`
- *   - Untrusted <iframe> elements     → counted as `untrustedIframes`
  *   - Inline event-handler attributes → counted as `inlineHandlers`
  *     (any attribute whose name begins with "on", e.g. onclick, onload)
  *
@@ -20,15 +19,12 @@
  * HTML comments and processing instructions are removed silently.
  */
 
-import { isTrustedVideoIframeSrc } from './trustedVideoIframe'
-
 export interface StripReport {
   scripts: number
   stylesheetLinks: number
   otherLinks: number
   metadataElements: number
   embeddedElements: number
-  untrustedIframes: number
   inlineHandlers: number
 }
 
@@ -83,7 +79,6 @@ export function stripUnsafe(doc: Document): StripReport {
     otherLinks: 0,
     metadataElements: 0,
     embeddedElements: 0,
-    untrustedIframes: 0,
     inlineHandlers: 0,
   }
 
@@ -126,15 +121,6 @@ export function stripUnsafe(doc: Document): StripReport {
   for (const el of Array.from(doc.querySelectorAll('frame, frameset, object, embed, applet'))) {
     el.remove()
     report.embeddedElements++
-  }
-
-  // Preserve exactly the iframe sources that the mapping rules turn into a
-  // real base.video node. Everything else would become a forbidden custom-tag
-  // container and publish as an inert div.
-  for (const el of Array.from(doc.querySelectorAll('iframe'))) {
-    if (isTrustedVideoIframeSrc(el.getAttribute('src') ?? '')) continue
-    el.remove()
-    report.untrustedIframes++
   }
 
   // Strip event-handler attributes (counted) and the now-harvested inline

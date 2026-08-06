@@ -302,6 +302,21 @@ describe('deriveCspSourcesFromHtml — provider implication table', () => {
     ])
   })
 
+  it('dedupes a persisted page hint against a real script origin', () => {
+    const derived = deriveCspSourcesFromHtml(
+      '<script src="https://kit.fontawesome.com/example.js"></script>',
+      ['//kit.fontawesome.com', 'https://kit.fontawesome.com'],
+    )
+    expect(derived.find((entry) => entry.directive === 'connect-src')?.sources).toEqual([
+      'https://ka-p.fontawesome.com',
+      'https://kit.fontawesome.com',
+    ])
+  })
+
+  it('an unknown persisted page hint does not change the derived policy', () => {
+    expect(deriveCspSourcesFromHtml('', ['https://evil.example/path'])).toEqual([])
+  })
+
   it('adds only observed connect endpoints for NitroPack and ActiveCampaign', () => {
     const derived = deriveCspSourcesFromHtml(
       '<link rel="dns-prefetch" href="//to.getnitropack.com">' +

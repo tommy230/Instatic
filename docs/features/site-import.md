@@ -92,7 +92,7 @@ User drops files / folder / static .zip / CMS bundle .zip
     ┌── per HTML file ──────────────────────────────────────────────┐
     │   makeHtmlPagePlan(path, html, fileMap)                       │
     │   → PagePlan { source, title, slug, linkedCssPaths, scripts, │
-    │               nodeFragment (via @core/htmlImport) }           │
+    │               connectionHints, nodeFragment }                 │
     └───────────────────────────────────────────────────────────────┘
             │
     expandLinkedCssImports(linkedCssPaths, fileMap)

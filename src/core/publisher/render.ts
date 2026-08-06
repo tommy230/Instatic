@@ -481,6 +481,7 @@ function buildContentSecurityPolicy(
   importmap: PublishedRuntimePackageImportmap | undefined,
   moduleCspSources: ReadonlyMap<string, ReadonlySet<string>>,
   bodyHtml: string,
+  connectionHints: readonly string[],
   site: SiteDocument,
 ): string {
   const plan = createBaseCspPlan({ anyScriptTag, importmapSha: importmap?.sha256 })
@@ -495,7 +496,7 @@ function buildContentSecurityPolicy(
   for (const [directive, sources] of moduleCspSources) {
     addCspSources(plan, directive, sources)
   }
-  for (const { directive, sources } of deriveCspSourcesFromHtml(bodyHtml)) {
+  for (const { directive, sources } of deriveCspSourcesFromHtml(bodyHtml, connectionHints)) {
     addCspSources(plan, directive, sources)
   }
   // Head links and vendor-hosted font faces never appear in the body HTML, so
@@ -655,6 +656,7 @@ export function publishPage(
     runtime.importmap,
     acc.cspSources,
     bodyHtml,
+    page.connectionHints ?? [],
     site,
   )
 

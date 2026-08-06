@@ -51,7 +51,12 @@ export function makeHtmlPagePlan(
   const warnings: ImportWarning[] = []
 
   // --- Step 1: extract <title>, stylesheet links, and script references ---
-  const { title: extractedTitle, linkHrefs, scriptRefs } = extractDocumentMeta(htmlSource, htmlPath)
+  const {
+    title: extractedTitle,
+    linkHrefs,
+    scriptRefs,
+    connectionHints,
+  } = extractDocumentMeta(htmlSource, htmlPath)
 
   // --- Step 2: resolve stylesheet hrefs to FileMap keys ---
   const linkedCssPaths: string[] = []
@@ -106,6 +111,7 @@ export function makeHtmlPagePlan(
     slug,
     linkedCssPaths,
     scripts,
+    connectionHints,
     nodeFragment,
   }
 
@@ -133,6 +139,7 @@ interface DocumentMeta {
   title: string | null
   linkHrefs: string[]
   scriptRefs: ScriptRef[]
+  connectionHints: string[]
 }
 
 /**
@@ -184,10 +191,20 @@ function extractDocumentMetaFromDom(htmlSource: string, htmlPath: string): Docum
     const title = titleEl?.textContent?.trim() ?? null
 
     const linkHrefs: string[] = []
-    const links = doc.querySelectorAll('link[rel="stylesheet"]')
+    const connectionHints = new Set<string>()
+    const links = doc.querySelectorAll('link')
     for (const link of Array.from(links)) {
+      const relationTokens = (link.getAttribute('rel') ?? '')
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean)
       const href = link.getAttribute('href')
-      if (href && href.trim().length > 0) linkHrefs.push(href.trim())
+      if (!href || href.trim().length === 0) continue
+      const normalizedHref = href.trim()
+      if (relationTokens.includes('stylesheet')) linkHrefs.push(normalizedHref)
+      if (relationTokens.includes('dns-prefetch') || relationTokens.includes('preconnect')) {
+        connectionHints.add(normalizedHref)
+      }
     }
 
     const scriptRefs: ScriptRef[] = []
@@ -214,7 +231,7 @@ function extractDocumentMetaFromDom(htmlSource: string, htmlPath: string): Docum
       })
     }
 
-    return { title, linkHrefs, scriptRefs }
+    return { title, linkHrefs, scriptRefs, connectionHints: [...connectionHints] }
   } catch {
     // DOM parse failed — fall through to regex
     return extractDocumentMetaFromRegex(htmlSource, htmlPath)
@@ -230,14 +247,17 @@ function extractDocumentMetaFromRegex(htmlSource: string, htmlPath: string): Doc
   // Extract <link rel="stylesheet" href="...">
   // Handles both attr orders and single/double quotes
   const linkHrefs: string[] = []
+  const connectionHints = new Set<string>()
   const linkRe = /<link\s[^>]*>/gi
   let linkMatch: RegExpExecArray | null
   while ((linkMatch = linkRe.exec(htmlSource)) !== null) {
     const tag = linkMatch[0]
-    const hasStylesheet = /rel=["']stylesheet["']/i.test(tag)
-    if (hasStylesheet) {
-      const hrefMatch = tag.match(/href=["']([^"']+)["']/i)
-      if (hrefMatch) linkHrefs.push(hrefMatch[1].trim())
+    const relTokens = (attrValue(tag, 'rel') ?? '').toLowerCase().split(/\s+/)
+    const href = attrValue(tag, 'href')?.trim()
+    if (!href) continue
+    if (relTokens.includes('stylesheet')) linkHrefs.push(href)
+    if (relTokens.includes('dns-prefetch') || relTokens.includes('preconnect')) {
+      connectionHints.add(href)
     }
   }
 
@@ -269,7 +289,7 @@ function extractDocumentMetaFromRegex(htmlSource: string, htmlPath: string): Doc
     })
   }
 
-  return { title, linkHrefs, scriptRefs }
+  return { title, linkHrefs, scriptRefs, connectionHints: [...connectionHints] }
 }
 
 function inlineScriptPath(htmlPath: string, index: number): string {

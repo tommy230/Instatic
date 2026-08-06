@@ -333,7 +333,10 @@ function decodeHtmlEntities(value: string): string {
  * Returns `[]` for markup with no external resources or recognized provider
  * hints, keeping the strict base policy byte-identical for pages needing none.
  */
-export function deriveCspSourcesFromHtml(html: string): PageCspRequirement[] {
+export function deriveCspSourcesFromHtml(
+  html: string,
+  connectionHints: readonly string[] = [],
+): PageCspRequirement[] {
   const byDirective = new Map<string, Set<string>>()
   const add = (directive: string, source: string): void => {
     const set = byDirective.get(directive) ?? new Set<string>()
@@ -372,6 +375,11 @@ export function deriveCspSourcesFromHtml(html: string): PageCspRequirement[] {
     addProviderImplications(host, add)
   }
 
+  const addConnectionHint = (href: string): void => {
+    const host = hostFromHintHref(href)
+    if (host) addProviderImplications(host, add)
+  }
+
   for (const attrs of operativeLinkAttributes(html)) {
     const relMatch = REL_ATTR_PATTERN.exec(attrs)
     if (!relMatch) continue
@@ -381,12 +389,13 @@ export function deriveCspSourcesFromHtml(html: string): PageCspRequirement[] {
 
     const hrefMatch = HREF_ATTR_PATTERN.exec(attrs)
     if (!hrefMatch) continue
-    const host = hostFromHintHref(hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? '')
-    if (!host) continue
-
     // A hint never widens policy by itself. Only known, narrowly scoped
     // provider implications may contribute sources.
-    addProviderImplications(host, add)
+    addConnectionHint(hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? '')
+  }
+
+  for (const href of connectionHints) {
+    addConnectionHint(href)
   }
 
   return requirementsFromMap(byDirective)

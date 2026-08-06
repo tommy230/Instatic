@@ -7,7 +7,7 @@
  *
  *   cells.title              → page.title
  *   cells.slug (= row.slug)  → page.slug (denormalized on data_rows.slug)
- *   cells.body               → { nodes, rootNodeId } (pageTree field)
+ *   cells.body               → { nodes, rootNodeId, connectionHints } (pageTree field)
  *   cells.templateEnabled    → page.template.enabled
  *   cells.templateTarget     → page.template.target (stored as JSON object)
  *   cells.templatePriority   → page.template.priority
@@ -40,6 +40,7 @@ export function pageFromRow(row: DataRow): Page {
   // body field: NodeTree<PageNode>  { nodes: {...}, rootNodeId: '...' }
   let nodes: Record<string, PageNode> = {}
   let rootNodeId = ''
+  let connectionHints: string[] | undefined
   const body = cells.body
   if (body && typeof body === 'object' && !Array.isArray(body)) {
     const b = body as Record<string, unknown>
@@ -48,6 +49,9 @@ export function pageFromRow(row: DataRow): Page {
     }
     if (typeof b.rootNodeId === 'string') {
       rootNodeId = b.rootNodeId
+    }
+    if (Array.isArray(b.connectionHints)) {
+      connectionHints = b.connectionHints.filter((value): value is string => typeof value === 'string')
     }
   }
 
@@ -62,6 +66,7 @@ export function pageFromRow(row: DataRow): Page {
     title,
     nodes,
     rootNodeId,
+    ...(connectionHints !== undefined ? { connectionHints } : {}),
     ...(template !== null ? { template } : {}),
     ownerUserId: row.authorUserId ?? null,
     createdByUserId: row.createdByUserId ?? null,
@@ -96,6 +101,7 @@ export function pageToCells(page: Page): DataRowCells {
     body: {
       nodes: page.nodes,
       rootNodeId: page.rootNodeId,
+      ...(page.connectionHints ? { connectionHints: page.connectionHints } : {}),
     },
   }
 
