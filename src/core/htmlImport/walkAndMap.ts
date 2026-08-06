@@ -405,7 +405,7 @@ export function walkAndMap(
  *
  * Returns an ImportResult that merges the fragment with the StripReport and the
  * raw `<style>` CSS, so callers can parse the CSS into registry rules and
- * surface a "Stripped: N scripts, M handlers" toast.
+ * surface diagnostics about stripped constructs.
  */
 export function importHtml(source: string): ImportResult {
   const doc = parseHtml(source)

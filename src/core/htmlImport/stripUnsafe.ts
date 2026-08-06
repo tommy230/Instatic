@@ -4,6 +4,7 @@
  *
  * What is stripped (and counted in StripReport):
  *   - <script> elements               → counted as `scripts`
+ *   - Stylesheet <link> elements       → counted as `stylesheetLinks`
  *   - Inline event-handler attributes → counted as `inlineHandlers`
  *     (any attribute whose name begins with "on", e.g. onclick, onload)
  *
@@ -18,6 +19,7 @@
 
 export interface StripReport {
   scripts: number
+  stylesheetLinks: number
   inlineHandlers: number
 }
 
@@ -66,7 +68,7 @@ function removeCommentsAndPIs(node: Node): void {
  * `harvestInlineStyles`) so it is preserved, not dropped.
  */
 export function stripUnsafe(doc: Document): StripReport {
-  const report: StripReport = { scripts: 0, inlineHandlers: 0 }
+  const report: StripReport = { scripts: 0, stylesheetLinks: 0, inlineHandlers: 0 }
 
   // Remove <script> elements first so their content cannot be accessed.
   for (const el of Array.from(doc.querySelectorAll('script'))) {
@@ -77,6 +79,17 @@ export function stripUnsafe(doc: Document): StripReport {
   // Remove <style> elements — their CSS was already harvested by collectStyleCss.
   for (const el of Array.from(doc.querySelectorAll('style'))) {
     el.remove()
+  }
+
+  // The site-import plan harvests stylesheets from its own parse of the whole
+  // document before this importer runs. Remove those links here so body-level
+  // links cannot fall through to a custom base.container that publishes as an
+  // inert div. Link relation tokens are ASCII case-insensitive.
+  for (const el of Array.from(doc.querySelectorAll('link'))) {
+    const relationTokens = (el.getAttribute('rel') ?? '').split(/[ \t\n\f\r]+/)
+    if (!relationTokens.some((token) => token.toLowerCase() === 'stylesheet')) continue
+    el.remove()
+    report.stylesheetLinks++
   }
 
   // Strip event-handler attributes (counted) and the now-harvested inline
