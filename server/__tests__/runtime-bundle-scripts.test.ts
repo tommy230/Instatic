@@ -59,6 +59,12 @@ function makeRuntimeSite(page: Page): SiteDocument {
         'legacy-vendor': {
           ...DEFAULT_SCRIPT_RUNTIME_CONFIG,
           format: 'classic',
+          authoredAttributes: [
+            { name: 'src', value: 'https://example.com/legacy-vendor.js#config=1' },
+            { name: 'data-widget-token', value: 'token' },
+            { name: 'defer' },
+          ],
+          srcFragment: '#config=1',
         },
       },
     },
@@ -85,5 +91,11 @@ describe('buildSiteRuntimeScripts', () => {
     expect(result.runtimeAssets.scripts).toHaveLength(1)
     expect(result.runtimeAssets.scripts[0].format).toBe('classic')
     expect(result.runtimeAssets.scripts[0].src).toContain('/_instatic/assets/version-1/classic/')
+    expect(result.runtimeAssets.scripts[0].authoredAttributes).toEqual([
+      { name: 'src', value: 'https://example.com/legacy-vendor.js#config=1' },
+      { name: 'data-widget-token', value: 'token' },
+      { name: 'defer' },
+    ])
+    expect(result.runtimeAssets.scripts[0].srcFragment).toBe('#config=1')
   })
 })

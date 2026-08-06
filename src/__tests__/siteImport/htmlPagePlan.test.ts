@@ -150,8 +150,21 @@ describe('makeHtmlPagePlan', () => {
   it('resolves linked script paths with classic/module format', () => {
     const { pagePlan } = makeHtmlPagePlan('index.html', new TextDecoder().decode(fileMap.files['index.html']!.bytes), fileMap)
     expect(pagePlan.scripts).toEqual([
-      { kind: 'external', path: 'scripts/vendor.js', format: 'classic' },
-      { kind: 'external', path: 'scripts/app.js', format: 'module' },
+      {
+        kind: 'external',
+        path: 'scripts/vendor.js',
+        format: 'classic',
+        authoredAttributes: [{ name: 'src', value: 'scripts/vendor.js' }],
+      },
+      {
+        kind: 'external',
+        path: 'scripts/app.js',
+        format: 'module',
+        authoredAttributes: [
+          { name: 'type', value: 'module' },
+          { name: 'src', value: 'scripts/app.js' },
+        ],
+      },
     ])
   })
 
@@ -173,14 +186,27 @@ describe('makeHtmlPagePlan', () => {
         content: "var duration = '500', easing = 'swing';",
         format: 'classic',
       },
-      { kind: 'external', path: 'scripts/vendor.js', format: 'classic' },
+      {
+        kind: 'external',
+        path: 'scripts/vendor.js',
+        format: 'classic',
+        authoredAttributes: [{ name: 'src', value: 'scripts/vendor.js' }],
+      },
       {
         kind: 'inline',
         path: 'index.html-inline-script-2.js',
         content: 'window.inlineModuleLoaded = true',
         format: 'module',
       },
-      { kind: 'external', path: 'scripts/app.js', format: 'module' },
+      {
+        kind: 'external',
+        path: 'scripts/app.js',
+        format: 'module',
+        authoredAttributes: [
+          { name: 'src', value: 'scripts/app.js' },
+          { name: 'type', value: 'module' },
+        ],
+      },
     ])
   })
 
@@ -203,6 +229,23 @@ describe('makeHtmlPagePlan', () => {
     const warn = warnings.find((w) => w.kind === 'missing-script')
     expect(warn).toBeDefined()
     expect(warn!.path).toBe('scripts/missing.js')
+  })
+
+  it('retains authored script attributes and the src fragment while resolving the asset path', () => {
+    const html = `<script src="scripts/vendor.js?ver=1.0#xfbml=1&version=v25.0" data-token="abc" defer></script>`
+    const { pagePlan } = makeHtmlPagePlan('index.html', html, fileMap)
+
+    expect(pagePlan.scripts).toEqual([{
+      kind: 'external',
+      path: 'scripts/vendor.js',
+      format: 'classic',
+      authoredAttributes: [
+        { name: 'src', value: 'scripts/vendor.js?ver=1.0#xfbml=1&version=v25.0' },
+        { name: 'data-token', value: 'abc' },
+        { name: 'defer' },
+      ],
+      srcFragment: '#xfbml=1&version=v25.0',
+    }])
   })
 
   it('falls back to prettified filename when <title> is absent', () => {

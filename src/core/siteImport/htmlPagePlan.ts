@@ -18,7 +18,7 @@ import { dirname, joinPaths } from './paths'
 import { importHtml } from '@core/htmlImport'
 import { normalizePageSlug } from '@core/page-tree'
 import type { FileMap, ImportWarning, PagePlan, PageScript } from './types'
-import type { SiteScriptFormat } from '@core/site-runtime'
+import type { AuthoredScriptAttribute, SiteScriptFormat } from '@core/site-runtime'
 
 // ---------------------------------------------------------------------------
 // Public function
@@ -81,9 +81,19 @@ export function makeHtmlPagePlan(
       scripts.push(script)
       continue
     }
-    const resolved = resolveHref(script.src, htmlPath)
+    const sourceWithoutFragment = script.src.split('#', 1)[0] ?? script.src
+    const resolvedWithQuery = resolveHref(sourceWithoutFragment, htmlPath)
+    const resolved = resolvedWithQuery && fileMap.files[resolvedWithQuery]
+      ? resolvedWithQuery
+      : resolveHref(sourceWithoutFragment.split('?', 1)[0] ?? sourceWithoutFragment, htmlPath)
     if (resolved && fileMap.files[resolved]) {
-      scripts.push({ kind: 'external', path: resolved, format: script.format })
+      scripts.push({
+        kind: 'external',
+        path: resolved,
+        format: script.format,
+        authoredAttributes: script.authoredAttributes,
+        ...(script.srcFragment ? { srcFragment: script.srcFragment } : {}),
+      })
     } else if (resolved) {
       warnings.push({
         kind: 'missing-script',
@@ -127,6 +137,8 @@ type ScriptRef =
     kind: 'external'
     src: string
     format: SiteScriptFormat
+    authoredAttributes: AuthoredScriptAttribute[]
+    srcFragment?: string
   }
   | {
     kind: 'inline'
@@ -216,7 +228,14 @@ function extractDocumentMetaFromDom(htmlSource: string, htmlPath: string): Docum
 
       const src = script.getAttribute('src')
       if (src && src.trim().length > 0) {
-        scriptRefs.push({ kind: 'external', src: src.trim(), format })
+        const trimmedSrc = src.trim()
+        scriptRefs.push({
+          kind: 'external',
+          src: trimmedSrc,
+          format,
+          authoredAttributes: authoredAttributesFromElement(script),
+          srcFragment: sourceFragment(trimmedSrc),
+        })
         continue
       }
 
@@ -274,7 +293,13 @@ function extractDocumentMetaFromRegex(htmlSource: string, htmlPath: string): Doc
 
     const src = attrValue(attrs, 'src')?.trim()
     if (src) {
-      scriptRefs.push({ kind: 'external', src, format })
+      scriptRefs.push({
+        kind: 'external',
+        src,
+        format,
+        authoredAttributes: authoredAttributesFromSource(attrs),
+        srcFragment: sourceFragment(src),
+      })
       continue
     }
 
@@ -300,6 +325,36 @@ function attrValue(attrs: string, name: string): string | null {
   const re = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>]+))`, 'i')
   const match = attrs.match(re)
   return match?.[1] ?? match?.[2] ?? match?.[3] ?? null
+}
+
+const BOOLEAN_SCRIPT_ATTRIBUTES = new Set(['async', 'defer', 'nomodule'])
+
+function authoredAttributesFromElement(script: Element): AuthoredScriptAttribute[] {
+  return Array.from(script.attributes, (attribute) => ({
+    name: attribute.name,
+    ...(BOOLEAN_SCRIPT_ATTRIBUTES.has(attribute.name.toLowerCase()) ? {} : { value: attribute.value }),
+  }))
+}
+
+function authoredAttributesFromSource(source: string): AuthoredScriptAttribute[] {
+  const attributes: AuthoredScriptAttribute[] = []
+  const attributeRe = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
+  let match: RegExpExecArray | null
+  while ((match = attributeRe.exec(source)) !== null) {
+    const name = match[1]
+    if (!name) continue
+    const value = match[2] ?? match[3] ?? match[4]
+    attributes.push({
+      name,
+      ...(value === undefined || BOOLEAN_SCRIPT_ATTRIBUTES.has(name.toLowerCase()) ? {} : { value }),
+    })
+  }
+  return attributes
+}
+
+function sourceFragment(src: string): string | undefined {
+  const hashIndex = src.indexOf('#')
+  return hashIndex >= 0 ? src.slice(hashIndex) : undefined
 }
 
 // ---------------------------------------------------------------------------

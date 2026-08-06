@@ -34,6 +34,46 @@ function runtimeScriptsForPlacement(
     .sort((a, b) => a.priority - b.priority || a.src.localeCompare(b.src))
 }
 
+function emittedScriptSrc(asset: PublishedRuntimeScriptAsset): string {
+  const src = asset.src.trim()
+  if (src.includes('#') || !asset.srcFragment?.startsWith('#')) return src
+  return `${src}${asset.srcFragment}`
+}
+
+function isSafeAttributeName(name: string): boolean {
+  return Boolean(name) && !Array.from(name).some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 32 || code === 127 || `"'<>/=`.includes(character) || character === '`'
+  })
+}
+
+function authoredScriptAttributes(asset: PublishedRuntimeScriptAsset): string {
+  const seen = new Set<string>()
+  const attributes: string[] = []
+
+  for (const attribute of asset.authoredAttributes ?? []) {
+    const normalizedName = attribute.name.toLowerCase()
+    if (seen.has(normalizedName)) continue
+    seen.add(normalizedName)
+    if (!isSafeAttributeName(attribute.name)) continue
+    if (
+      normalizedName === 'src' ||
+      normalizedName === 'type' ||
+      normalizedName === 'data-instatic-runtime-script' ||
+      normalizedName === 'integrity' ||
+      (normalizedName === 'crossorigin' && Boolean(asset.integrity)) ||
+      normalizedName.startsWith('on')
+    ) continue
+
+    const name = escapeAttribute(attribute.name)
+    attributes.push(attribute.value === undefined
+      ? ` ${name}`
+      : ` ${name}="${escapeAttribute(attribute.value)}"`)
+  }
+
+  return attributes.join('')
+}
+
 export function hasPublishedRuntimeScripts(runtimeAssets: PublishedPageRuntimeAssets | undefined): boolean {
   return (runtimeAssets?.scripts ?? []).some((asset) => isSelfHostedRuntimeAssetUrl(asset.src))
 }
@@ -48,7 +88,8 @@ export function scriptTagsForRuntimeAssets(
         ? ` integrity="${escapeAttribute(asset.integrity)}" crossorigin="anonymous"`
         : ''
       const type = asset.format === 'classic' ? '' : ' type="module"'
-      return `  <script${type} src="${escapeAttribute(asset.src.trim())}" data-instatic-runtime-script="${escapeAttribute(asset.fileId)}"${integrity}></script>`
+      const authored = authoredScriptAttributes(asset)
+      return `  <script${type} src="${escapeAttribute(emittedScriptSrc(asset))}" data-instatic-runtime-script="${escapeAttribute(asset.fileId)}"${integrity}${authored}></script>`
     })
     .join('\n')
 }
