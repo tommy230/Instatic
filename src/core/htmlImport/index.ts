@@ -15,7 +15,7 @@
  * Types:
  *   ImportFragment  — { nodes, rootIds, body? } flat NodeTree fragment plus optional body attributes.
  *   ImportResult    — ImportFragment + stripped (StripReport) + styleCss (raw <style> CSS).
- *   StripReport     — counts of dropped constructs (scripts, stylesheet links, inline handlers).
+ *   StripReport     — counts of dropped scripts, links, metadata, embeds, iframes, and handlers.
  *   ImportRule      — shape of a single rule in HTML_TO_MODULE_RULES.
  *
  * All imports into this module from outside go through this barrel.
