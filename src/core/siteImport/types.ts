@@ -415,6 +415,7 @@ export interface PagePlan {
    * import maps, templates, etc.) is intentionally skipped.
    */
   scripts: PageScript[]
+  connectionHints: string[]
   /**
    * The body content as a flat node fragment.
    *

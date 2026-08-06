@@ -334,6 +334,7 @@ function commitPages(
       tx.overwritePage(conflict.existingPageId, {
         title: page.title,
         slug: page.slug,
+        connectionHints: page.connectionHints,
         nodeFragment: page.nodeFragment,
       })
       id = conflict.existingPageId
@@ -342,6 +343,7 @@ function commitPages(
         id: mintedId,
         title: page.title,
         slug: resolution?.resolvedSlug ?? page.slug,
+        connectionHints: page.connectionHints,
         nodeFragment: page.nodeFragment,
       })
     }

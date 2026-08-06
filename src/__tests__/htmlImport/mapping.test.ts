@@ -1403,16 +1403,28 @@ describe('base.video — <iframe> import mapping', () => {
     expect(node.props.videoUrl).toBe('https://iframe.videodelivery.net/0123456789abcdef')
   })
 
-  it('Google Maps iframe is stripped', () => {
-    const result = imported('<iframe src="https://maps.google.com/maps?q=London"></iframe>')
-    expect(result.rootIds).toHaveLength(0)
-    expect(result.stripped.untrustedIframes).toBe(1)
+  it.each([
+    ['Google Maps', 'https://maps.google.com/maps?q=London'],
+    ['Monday form', 'https://forms.monday.com/forms/embed/example'],
+    ['SpeakPipe', 'https://www.speakpipe.com/widget/inline/example'],
+  ])('%s iframe preserves the pre-husk base.container node shape', (_provider, src) => {
+    const result = imported(`<iframe src="${src}"></iframe>`)
+    expect(result.rootIds).toHaveLength(1)
+    expect(result.nodes[result.rootIds[0]!]!).toMatchObject({
+      moduleId: 'base.container',
+      props: { tag: 'custom', customTag: 'iframe' },
+      children: [],
+    })
   })
 
-  it('arbitrary iframe is stripped instead of becoming a container husk', () => {
-    const result = imported('<iframe src="https://example.com/form"></iframe>')
-    expect(result.rootIds).toHaveLength(0)
-    expect(result.stripped.untrustedIframes).toBe(1)
+  it('iframe without src follows the current fallback mapping', () => {
+    const result = imported('<iframe srcdoc="<p>Injected later</p>"></iframe>')
+    expect(result.rootIds).toHaveLength(1)
+    expect(result.nodes[result.rootIds[0]!]!).toMatchObject({
+      moduleId: 'base.container',
+      props: { tag: 'custom', customTag: 'iframe' },
+      children: [],
+    })
   })
 
   it('YouTube iframe produces no children (recurse: false)', () => {

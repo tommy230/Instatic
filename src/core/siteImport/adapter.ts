@@ -101,6 +101,7 @@ export interface SiteImportTransaction {
     id?: string
     title: string
     slug: string
+    connectionHints?: string[]
     nodeFragment: ImportFragment
   }): string
 
@@ -116,6 +117,7 @@ export interface SiteImportTransaction {
     input: {
       title: string
       slug: string
+      connectionHints?: string[]
       nodeFragment: ImportFragment
     },
   ): void

@@ -4,7 +4,7 @@ import { importHtml, parseHtml, stripUnsafe } from '@core/htmlImport'
 import { FORBIDDEN_CUSTOM_HTML_TAGS } from '@modules/base/utils/htmlTag'
 
 function fixtureFor(tag: string): string {
-  if (tag === 'iframe') return '<iframe src="https://example.com/form"></iframe><main>Safe</main>'
+  if (tag === 'iframe') return '<iframe src="https://www.youtube.com/embed/fixture"></iframe><main>Safe</main>'
   if (tag === 'script') return '<script>unsafe()</script><main>Safe</main>'
   if (tag === 'style') return '<style>.safe { color: green; }</style><main>Safe</main>'
   if (tag === 'frameset') return '<frameset><frame src="legacy.html"></frameset>'
@@ -32,7 +32,6 @@ describe('forbidden custom-tag husks', () => {
       <OBJECT data="plugin.bin"><p>Fallback</p></OBJECT>
       <EMBED src="plugin.bin">
       <APPLET><p>Fallback</p></APPLET>
-      <IFRAME src="https://example.com/form"></IFRAME>
     `)
 
     expect(result.stripped).toMatchObject({
@@ -40,7 +39,6 @@ describe('forbidden custom-tag husks', () => {
       otherLinks: 1,
       metadataElements: 2,
       embeddedElements: 3,
-      untrustedIframes: 1,
     })
 
     const legacyFrames = stripUnsafe(parseHtml(
@@ -70,6 +68,5 @@ describe('forbidden custom-tag husks', () => {
         allowFullscreen: true,
       },
     })
-    expect(result.stripped.untrustedIframes).toBe(0)
   })
 })

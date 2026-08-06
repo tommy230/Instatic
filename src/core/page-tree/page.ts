@@ -22,6 +22,7 @@ import { NodeTreeSchema } from './treeSchema'
 import { PageNodeSchema, type PageNode, parsePageNode } from './pageNode'
 import { PageTemplateConfigSchema, parsePageTemplate } from './pageTemplate'
 import { reindexNodeParents } from './parentIndex'
+import { parseStringArrayField } from './parseHelpers'
 
 // ---------------------------------------------------------------------------
 // PageSchema
@@ -36,6 +37,8 @@ export const PageSchema = Type.Object({
   slug: Type.String(),
   /** Display title e.g. "Home", "About Us" */
   title: Type.String(),
+  /** Raw-source provider hint hrefs retained for page-scoped CSP derivation. */
+  connectionHints: Type.Optional(Type.Array(Type.String())),
   /** Owning user for admin/editor workflows; server-owned when persisted in CMS. */
   ownerUserId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   /** User who originally created this page; server-owned when persisted in CMS. */
@@ -92,11 +95,13 @@ export function parsePage(raw: unknown, pageIndex: number): Page {
   reindexNodeParents(nodes)
 
   const template = parsePageTemplate(r.template)
+  const connectionHints = parseStringArrayField(r.connectionHints)
 
   return {
     id: r.id,
     slug: r.slug,
     title: r.title,
+    ...(connectionHints !== undefined ? { connectionHints } : {}),
     ...(typeof r.ownerUserId === 'string' || r.ownerUserId === null ? { ownerUserId: r.ownerUserId } : {}),
     ...(typeof r.createdByUserId === 'string' || r.createdByUserId === null
       ? { createdByUserId: r.createdByUserId }

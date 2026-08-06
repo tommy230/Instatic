@@ -450,7 +450,7 @@ export function buildSiteHelpers(
       const ambientBySelector = indexAmbientRuleIds(site.styleRules)
 
       const helpers: SiteImportTransaction = {
-        addPage({ id: pageId, title, slug, nodeFragment }: { id?: string; title: string; slug: string; nodeFragment: ImportFragment }): string {
+        addPage({ id: pageId, title, slug, connectionHints = [], nodeFragment }: { id?: string; title: string; slug: string; connectionHints?: string[]; nodeFragment: ImportFragment }): string {
           // addPage creates a fresh base.body root, normalises the slug, and
           // pushes the page onto site.pages. We then graft the fragment nodes
           // in as children of that root — same logical step as insertImportedNodes.
@@ -458,6 +458,7 @@ export function buildSiteHelpers(
           // Honour a caller-supplied id so the importer can pre-mint page ids
           // and rewrite internal links to `cms:page:<id>` before committing.
           if (pageId) page.id = pageId
+          page.connectionHints = [...connectionHints]
           applyImportedBodyAttributes(
             page.nodes[page.rootNodeId]!,
             nodeFragment,
@@ -530,7 +531,7 @@ export function buildSiteHelpers(
           return id
         },
 
-        overwritePage(pageId: string, { title, slug, nodeFragment }: { title: string; slug: string; nodeFragment: ImportFragment }): void {
+        overwritePage(pageId: string, { title, slug, connectionHints = [], nodeFragment }: { title: string; slug: string; connectionHints?: string[]; nodeFragment: ImportFragment }): void {
           const page = site.pages.find((p) => p.id === pageId)
           if (!page) throw new Error('overwritePage: page not found')
 
@@ -553,6 +554,7 @@ export function buildSiteHelpers(
           page.nodes = newNodes
           page.title = title
           page.slug = slug
+          page.connectionHints = [...connectionHints]
           didMutate = true
         },
 
