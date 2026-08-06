@@ -16,8 +16,9 @@
  *   1. **Derivation** — `deriveCspSourcesFromHtml` scans the rendered markup for
  *      `<script src>` (→ `script-src`), `<iframe src>` (→ `frame-src`),
  *      `<video|audio|source src>` (→ `media-src`), `<video poster>` (→
- *      `img-src`) and
- *      contributes the ORIGIN of each external reference. Only `https:` (and
+ *      `img-src`) contributes the ORIGIN of each external reference. It also
+ *      looks up provider-recognized `<link rel="dns-prefetch|preconnect">`
+ *      hosts without contributing the hinted origin directly. Only `https:` (and
  *      scheme-relative `//host/…`, which resolves to https on an https page)
  *      counts; relative / same-origin / `data:` / `blob:` / `http:` URLs are
  *      ignored. Nothing is derived from a page that references nothing
@@ -57,8 +58,9 @@ export interface PageCspRequirement {
 // ---------------------------------------------------------------------------
 
 /**
- * Companion CSP sources implied by seeing a given host in a page's `<script
- * src>` / `<iframe src>`. Keys are lowercase hostnames (no port, no scheme).
+ * Companion CSP sources implied by seeing a given host in a page's external
+ * resource markup or connection hints. Keys are lowercase hostnames (no port,
+ * no scheme).
  *
  * Deliberately minimal: every entry is a source the provider's own embed
  * documentation requires for a BASIC embed to function. Anything beyond that
@@ -66,9 +68,10 @@ export interface PageCspRequirement {
  * per-site escape hatch, not here — a table that grows to cover every optional
  * request path silently turns into a permissive default.
  *
- * To extend: add a host key with the directives it implies. The host's OWN
- * origin is already contributed by the derivation pass, so entries only list
- * the companions.
+ * To extend: add a host key with the directives it implies. Resource tags
+ * contribute their own origins directly. Connection hints contribute nothing
+ * directly, so an entry triggered by a hint must explicitly list every origin
+ * the provider needs, including the hinted origin when appropriate.
  */
 const PROVIDER_IMPLICATIONS: Readonly<Record<string, readonly PageCspRequirement[]>> = {
   // Vimeo: `player.vimeo.com/api/player.js` (also loaded by jarallax-video)
@@ -111,6 +114,40 @@ const PROVIDER_IMPLICATIONS: Readonly<Record<string, readonly PageCspRequirement
       sources: ['https://maps.googleapis.com', 'https://maps.gstatic.com'],
     },
   ],
+  // A localized Font Awesome Kit script still connects to the kit API, loads
+  // kit CSS, and fetches faces from the kit asset host. Optimizers can leave a
+  // connection hint as the only third-party trace in the imported markup.
+  'kit.fontawesome.com': [
+    {
+      directive: 'connect-src',
+      sources: ['https://ka-p.fontawesome.com', 'https://kit.fontawesome.com'],
+    },
+    {
+      directive: 'style-src',
+      sources: ['https://ka-p.fontawesome.com', 'https://kit.fontawesome.com'],
+    },
+    {
+      directive: 'font-src',
+      sources: ['https://ka-f.fontawesome.com', 'https://ka-p.fontawesome.com'],
+    },
+  ],
+  // NitroPack's localized runtime emits its telemetry beacon to this host.
+  'to.getnitropack.com': [
+    { directive: 'connect-src', sources: ['https://to.getnitropack.com'] },
+  ],
+  // ActiveCampaign's diffuser script connects to the regional Prism endpoint.
+  'diffuser-cdn.app-us1.com': [
+    { directive: 'connect-src', sources: ['https://prism.app-us1.com'] },
+  ],
+}
+
+function addProviderImplications(
+  host: string,
+  add: (directive: string, source: string) => void,
+): void {
+  for (const implied of PROVIDER_IMPLICATIONS[host] ?? []) {
+    for (const source of implied.sources) add(implied.directive, source)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -125,8 +162,33 @@ const PROVIDER_IMPLICATIONS: Readonly<Record<string, readonly PageCspRequirement
  */
 const EXTERNAL_TAG_PATTERN = /<(script|iframe|video|audio|source)(\s[^>]*)>/gi
 
+/**
+ * HTML comments or tags, keeping `>` inside quoted attributes in one token.
+ * Used only to identify operative `<link>` elements, not to parse arbitrary
+ * document structure or rewrite markup.
+ */
+const HTML_TOKEN_PATTERN =
+  /<!--[\s\S]*?(?:-->|$)|<(\/?)([a-z][a-z0-9:-]*)(\s(?:[^>"']|"[^"]*"|'[^']*')*)?\s*\/?>/gi
+
+/** Elements whose contents the HTML parser treats as text rather than tags. */
+const RAW_OR_RCDATA_ELEMENTS = new Set([
+  'iframe',
+  'noembed',
+  'noframes',
+  'noscript',
+  'script',
+  'style',
+  'textarea',
+  'title',
+  'xmp',
+])
+
 /** Matches a `src` attribute (quoted or bare) inside a captured attribute blob. */
 const SRC_ATTR_PATTERN = /(?:^|\s)src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i
+
+/** Connection-hint attributes, supporting quoted and bare values. */
+const REL_ATTR_PATTERN = /(?:^|\s)rel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i
+const HREF_ATTR_PATTERN = /(?:^|\s)href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i
 
 /**
  * Directive each scanned tag contributes its external origin to.
@@ -185,6 +247,70 @@ function originFromSrc(rawSrc: string): string | null {
 }
 
 /**
+ * Resolve a connection-hint href to a hostname. Unlike resource `src`
+ * attributes, hints found in imported HTML sometimes contain only a bare host.
+ * The result only indexes `PROVIDER_IMPLICATIONS`; it is never emitted itself.
+ */
+function hostFromHintHref(rawHref: string): string | null {
+  const href = decodeHtmlEntities(rawHref.trim())
+  if (!href) return null
+
+  let absolute: string
+  if (href.startsWith('//')) absolute = `https:${href}`
+  else if (/^https:\/\//i.test(href)) absolute = href
+  else if (/^[a-z][a-z0-9+.-]*:/i.test(href) || /^[/#.]/.test(href)) return null
+  else absolute = `https://${href}`
+
+  try {
+    const url = new URL(absolute)
+    return url.protocol === 'https:' && url.hostname ? url.hostname.toLowerCase() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Return attributes from operative link elements only. Link-looking text in
+ * comments, raw-text/RCDATA elements, plaintext, or nested templates is inert
+ * and must not widen policy.
+ */
+function operativeLinkAttributes(html: string): string[] {
+  const attributes: string[] = []
+  let rawElement: string | null = null
+  let templateDepth = 0
+
+  for (const match of html.matchAll(HTML_TOKEN_PATTERN)) {
+    if (match[0].startsWith('<!--')) continue
+    const closing = match[1] === '/'
+    const tagName = match[2]?.toLowerCase() ?? ''
+
+    if (rawElement) {
+      if (rawElement !== 'plaintext' && closing && tagName === rawElement) rawElement = null
+      continue
+    }
+
+    if (templateDepth > 0) {
+      if (tagName === 'template') templateDepth += closing ? -1 : 1
+      else if (!closing && (tagName === 'plaintext' || RAW_OR_RCDATA_ELEMENTS.has(tagName))) {
+        rawElement = tagName
+      }
+      continue
+    }
+
+    if (closing) continue
+    if (tagName === 'template') {
+      templateDepth = 1
+    } else if (tagName === 'plaintext' || RAW_OR_RCDATA_ELEMENTS.has(tagName)) {
+      rawElement = tagName
+    } else if (tagName === 'link') {
+      attributes.push(match[3] ?? '')
+    }
+  }
+
+  return attributes
+}
+
+/**
  * Decode the handful of entities the publisher's attribute escaper emits
  * (`escapeHtml` / `sanitizeRenderableHtmlAttribute`), so a src written as
  * `https://x/?a=1&amp;b=2` still parses as a URL. Ampersand is decoded last so
@@ -200,13 +326,12 @@ function decodeHtmlEntities(value: string): string {
 }
 
 /**
- * Scan rendered page HTML and return the CSP sources it implies: one entry per
- * external `<script src>` origin (`script-src`), one per external `<iframe src>`
- * origin (`frame-src`), plus every companion source from
- * `PROVIDER_IMPLICATIONS` for the hosts seen.
+ * Scan rendered page HTML and return the CSP sources it implies: external
+ * resource origins are routed to their matching directives, while recognized
+ * connection-hint hosts contribute only their `PROVIDER_IMPLICATIONS` entries.
  *
- * Returns `[]` for markup with no external script/iframe references — which is
- * what keeps the strict base policy byte-identical for pages that need nothing.
+ * Returns `[]` for markup with no external resources or recognized provider
+ * hints, keeping the strict base policy byte-identical for pages needing none.
  */
 export function deriveCspSourcesFromHtml(html: string): PageCspRequirement[] {
   const byDirective = new Map<string, Set<string>>()
@@ -244,9 +369,24 @@ export function deriveCspSourcesFromHtml(html: string): PageCspRequirement[] {
     // appeared: a Vimeo player referenced as a script and the same player
     // referenced as an iframe need the same companion origins.
     const host = origin.slice('https://'.length).split(':')[0] ?? ''
-    for (const implied of PROVIDER_IMPLICATIONS[host] ?? []) {
-      for (const source of implied.sources) add(implied.directive, source)
-    }
+    addProviderImplications(host, add)
+  }
+
+  for (const attrs of operativeLinkAttributes(html)) {
+    const relMatch = REL_ATTR_PATTERN.exec(attrs)
+    if (!relMatch) continue
+    const rel = decodeHtmlEntities(relMatch[1] ?? relMatch[2] ?? relMatch[3] ?? '')
+    const relTokens = rel.toLowerCase().split(/\s+/)
+    if (!relTokens.includes('dns-prefetch') && !relTokens.includes('preconnect')) continue
+
+    const hrefMatch = HREF_ATTR_PATTERN.exec(attrs)
+    if (!hrefMatch) continue
+    const host = hostFromHintHref(hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? '')
+    if (!host) continue
+
+    // A hint never widens policy by itself. Only known, narrowly scoped
+    // provider implications may contribute sources.
+    addProviderImplications(host, add)
   }
 
   return requirementsFromMap(byDirective)
@@ -267,8 +407,9 @@ function httpsOrigin(url: string): string | null {
 }
 
 /**
- * `font-src` origins for the site's vendor-hosted faces, and `style-src` /
- * `font-src` origins for operator-configured head links.
+ * CSP origins for the site's vendor-hosted faces and operator-configured head
+ * links. Stylesheet/font links contribute their resource origins; recognized
+ * connection hints contribute only their provider implication entries.
  *
  * These two channels put an external URL into the published document without
  * ever appearing in the page body, so `deriveCspSourcesFromHtml` cannot see
@@ -304,6 +445,12 @@ export function siteAssetCspSources(site: {
     // Same malformed-href rule the head emitter applies, so a link that is
     // dropped from the document never leaves an origin behind in the policy.
     if (/["'<>\s]/.test(link.href)) continue
+    if (link.rel === 'preconnect' || link.rel === 'dns-prefetch') {
+      const host = hostFromHintHref(link.href)
+      if (host) addProviderImplications(host, add)
+      continue
+    }
+
     const origin = httpsOrigin(link.href)
     if (!origin || !isSafeCspSource(origin)) continue
     if (link.rel === 'stylesheet' || (link.rel === 'preload' && link.as === 'style')) {
@@ -315,9 +462,6 @@ export function siteAssetCspSources(site: {
       add('font-src', origin)
     } else if (link.rel === 'preload' && link.as === 'font') {
       add('font-src', origin)
-    } else if (link.rel === 'preconnect' || link.rel === 'dns-prefetch') {
-      // A connection hint fetches nothing on its own; no directive needed.
-      continue
     }
   }
 

@@ -205,6 +205,119 @@ describe('deriveCspSourcesFromHtml — provider implication table', () => {
       deriveCspSourcesFromHtml('<script src="https://widgets.unknown.example/w.js"></script>'),
     ).toEqual([{ directive: 'script-src', sources: ['https://widgets.unknown.example'] }])
   })
+
+  it('Font Awesome dns-prefetch expands only through its provider implications', () => {
+    expect(
+      deriveCspSourcesFromHtml(
+        '<link rel="dns-prefetch" href="//kit.fontawesome.com">' +
+          '<script src="/_instatic/assets/localized-kit.js"></script>',
+      ),
+    ).toEqual([
+      {
+        directive: 'connect-src',
+        sources: ['https://ka-p.fontawesome.com', 'https://kit.fontawesome.com'],
+      },
+      {
+        directive: 'font-src',
+        sources: ['https://ka-f.fontawesome.com', 'https://ka-p.fontawesome.com'],
+      },
+      {
+        directive: 'style-src',
+        sources: ['https://ka-p.fontawesome.com', 'https://kit.fontawesome.com'],
+      },
+    ])
+  })
+
+  it('Font Awesome preconnect supports bare hosts, multiple rel tokens, and crossorigin', () => {
+    expect(
+      deriveCspSourcesFromHtml(
+        '<link crossorigin rel="preconnect dns-prefetch" href=kit.fontawesome.com>',
+      ),
+    ).toEqual([
+      {
+        directive: 'connect-src',
+        sources: ['https://ka-p.fontawesome.com', 'https://kit.fontawesome.com'],
+      },
+      {
+        directive: 'font-src',
+        sources: ['https://ka-f.fontawesome.com', 'https://ka-p.fontawesome.com'],
+      },
+      {
+        directive: 'style-src',
+        sources: ['https://ka-p.fontawesome.com', 'https://kit.fontawesome.com'],
+      },
+    ])
+  })
+
+  it('unknown connection hints do not change the derived policy', () => {
+    expect(
+      deriveCspSourcesFromHtml('<link rel="dns-prefetch" href="https://evil.example/path">'),
+    ).toEqual([])
+  })
+
+  it('ignores link-looking text in comments and inert or raw-text elements', () => {
+    const fakeHint = '<link rel="preconnect" href="https://kit.fontawesome.com">'
+    expect(
+      deriveCspSourcesFromHtml(
+        `<!-- ${fakeHint} -->` +
+          `<script>const hint = '${fakeHint}'</script>` +
+          `<style>/* ${fakeHint} */</style>` +
+          `<template><template>${fakeHint}</template>${fakeHint}</template>` +
+          `<template><script>const end = '</template>'</script>${fakeHint}</template>` +
+          `<textarea>${fakeHint}</textarea>` +
+          `<title>${fakeHint}</title>` +
+          `<iframe>${fakeHint}</iframe>` +
+          `<xmp>${fakeHint}</xmp>` +
+          `<noembed>${fakeHint}</noembed>` +
+          `<noframes>${fakeHint}</noframes>` +
+          `<noscript>${fakeHint}</noscript>` +
+          `<plaintext>${fakeHint}`,
+      ),
+    ).toEqual([])
+  })
+
+  it('a hint host never lands in script-src without a real external script src', () => {
+    const hinted = deriveCspSourcesFromHtml(
+      '<link rel="preconnect" href="https://kit.fontawesome.com">',
+    )
+    expect(hinted.find((entry) => entry.directive === 'script-src')).toBeUndefined()
+
+    const scripted = deriveCspSourcesFromHtml(
+      '<link rel="preconnect" href="https://kit.fontawesome.com">' +
+        '<script src="https://kit.fontawesome.com/example.js"></script>',
+    )
+    expect(scripted.find((entry) => entry.directive === 'script-src')?.sources).toEqual([
+      'https://kit.fontawesome.com',
+    ])
+  })
+
+  it('dedupes an implication host that also appears in resource markup', () => {
+    const derived = deriveCspSourcesFromHtml(
+      '<link rel="preconnect" href="https://kit.fontawesome.com">' +
+        '<script src="https://kit.fontawesome.com/example.js"></script>',
+    )
+    expect(derived.find((entry) => entry.directive === 'connect-src')?.sources).toEqual([
+      'https://ka-p.fontawesome.com',
+      'https://kit.fontawesome.com',
+    ])
+  })
+
+  it('adds only observed connect endpoints for NitroPack and ActiveCampaign', () => {
+    const derived = deriveCspSourcesFromHtml(
+      '<link rel="dns-prefetch" href="//to.getnitropack.com">' +
+        '<script src="https://diffuser-cdn.app-us1.com/diffuser/diffuser.js"></script>',
+    )
+    expect(derived).toEqual([
+      {
+        directive: 'connect-src',
+        sources: ['https://prism.app-us1.com', 'https://to.getnitropack.com'],
+      },
+      {
+        directive: 'script-src',
+        sources: ['https://diffuser-cdn.app-us1.com'],
+      },
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -275,6 +388,24 @@ describe('published page CSP — derived from page content', () => {
     // not widened to 'self' or '*'.
     expect(csp).not.toContain("script-src 'none'")
     expect(csp).not.toContain('*')
+  })
+
+  it('expands a recognized connection hint emitted through the published head', () => {
+    const site = makeSite()
+    site.settings.extraHeadLinks = [
+      { rel: 'preconnect', href: '//kit.fontawesome.com', crossorigin: '' },
+    ]
+    const csp = publishWithBody(
+      '<script src="/_instatic/assets/localized-kit.js"></script>',
+      site,
+    )
+    expect(csp).toContain(
+      "connect-src 'self' https://ka-p.fontawesome.com https://kit.fontawesome.com;",
+    )
+    expect(csp).toContain(
+      "font-src 'self' https://ka-f.fontawesome.com https://ka-p.fontawesome.com;",
+    )
+    expect(csp).not.toContain('script-src https://kit.fontawesome.com')
   })
 
   it('merges the per-site escape hatch into the same plan', () => {
