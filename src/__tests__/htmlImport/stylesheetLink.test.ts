@@ -40,7 +40,7 @@ describe('stylesheet link import', () => {
     expect(stylesheetHusks).toHaveLength(0)
   })
 
-  it('removes case-insensitive stylesheet tokens while leaving other link relations alone', () => {
+  it('removes case-insensitive stylesheet tokens and all other link relations', () => {
     const result = importHtml(
       '<head><link rel="stylesheet" href="head.css"></head><body><link REL="STYLESHEET alternate" href="theme.css"><link rel="preload" href="font.woff2"><link rel="alternate\u00a0stylesheet" href="metadata.css"><main>OK</main></body>',
     )
@@ -48,11 +48,8 @@ describe('stylesheet link import', () => {
     // stripUnsafe operates on the whole document, including head. This is safe:
     // makeHtmlPagePlan harvests links from a separate parse before importHtml.
     expect(result.stripped.stylesheetLinks).toBe(2)
+    expect(result.stripped.otherLinks).toBe(2)
     const linkNodes = Object.values(result.nodes).filter((node) => node.props.customTag === 'link')
-    expect(linkNodes).toHaveLength(2)
-    expect(linkNodes.map((node) => node.props.htmlAttributes)).toEqual([
-      { rel: 'preload', href: 'font.woff2' },
-      { rel: 'alternate\u00a0stylesheet', href: 'metadata.css' },
-    ])
+    expect(linkNodes).toHaveLength(0)
   })
 })

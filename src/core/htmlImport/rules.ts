@@ -20,7 +20,7 @@
 
 import { normalizeImportedText } from './text'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
-import { trustedVideoEmbed } from '@core/media/trustedVideoEmbed'
+import { isTrustedVideoIframeSrc } from './trustedVideoIframe'
 
 export interface ImportRule {
   /** CSS selector tested via `el.matches()`. */
@@ -604,18 +604,7 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
     match: 'iframe',
     map: (el) => {
       const src = attr(el, 'src')
-      let isYoutube = false
-      if (src) {
-        try {
-          const host = new URL(src).hostname.toLowerCase().replace(/^www\./, '')
-          isYoutube = host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtube-nocookie.com' || host === 'youtu.be'
-        } catch {
-          // malformed URL — not YouTube
-        }
-      }
-
-      const trustedEmbed = trustedVideoEmbed(src)
-      if (!isYoutube && !trustedEmbed) {
+      if (!isTrustedVideoIframeSrc(src)) {
         // Maps, forms, and arbitrary embeds stay non-executable.
         return { moduleId: 'base.container', props: { tag: 'custom', customTag: 'iframe' } }
       }

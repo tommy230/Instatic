@@ -4,7 +4,10 @@
  *
  * What is stripped (and counted in StripReport):
  *   - <script> elements               → counted as `scripts`
- *   - Stylesheet <link> elements       → counted as `stylesheetLinks`
+ *   - <link> elements                 → counted as `stylesheetLinks` or `otherLinks`
+ *   - <meta> and <base> elements      → counted as `metadataElements`
+ *   - Legacy/plugin embeds            → counted as `embeddedElements`
+ *   - Untrusted <iframe> elements     → counted as `untrustedIframes`
  *   - Inline event-handler attributes → counted as `inlineHandlers`
  *     (any attribute whose name begins with "on", e.g. onclick, onload)
  *
@@ -17,9 +20,15 @@
  * HTML comments and processing instructions are removed silently.
  */
 
+import { isTrustedVideoIframeSrc } from './trustedVideoIframe'
+
 export interface StripReport {
   scripts: number
   stylesheetLinks: number
+  otherLinks: number
+  metadataElements: number
+  embeddedElements: number
+  untrustedIframes: number
   inlineHandlers: number
 }
 
@@ -68,7 +77,15 @@ function removeCommentsAndPIs(node: Node): void {
  * `harvestInlineStyles`) so it is preserved, not dropped.
  */
 export function stripUnsafe(doc: Document): StripReport {
-  const report: StripReport = { scripts: 0, stylesheetLinks: 0, inlineHandlers: 0 }
+  const report: StripReport = {
+    scripts: 0,
+    stylesheetLinks: 0,
+    otherLinks: 0,
+    metadataElements: 0,
+    embeddedElements: 0,
+    untrustedIframes: 0,
+    inlineHandlers: 0,
+  }
 
   // Remove <script> elements first so their content cannot be accessed.
   for (const el of Array.from(doc.querySelectorAll('script'))) {
@@ -82,14 +99,42 @@ export function stripUnsafe(doc: Document): StripReport {
   }
 
   // The site-import plan harvests stylesheets from its own parse of the whole
-  // document before this importer runs. Remove those links here so body-level
-  // links cannot fall through to a custom base.container that publishes as an
-  // inert div. Link relation tokens are ASCII case-insensitive.
+  // document before this importer runs. No link element has useful body
+  // semantics after mapping, so remove every link rather than publishing an
+  // inert div. Keep stylesheet and other-link counts distinct because only
+  // stylesheets are re-homed by the plan. Relation tokens are ASCII
+  // case-insensitive.
   for (const el of Array.from(doc.querySelectorAll('link'))) {
     const relationTokens = (el.getAttribute('rel') ?? '').split(/[ \t\n\f\r]+/)
-    if (!relationTokens.some((token) => token.toLowerCase() === 'stylesheet')) continue
+    const isStylesheet = relationTokens.some((token) => token.toLowerCase() === 'stylesheet')
     el.remove()
-    report.stylesheetLinks++
+    if (isStylesheet) report.stylesheetLinks++
+    else report.otherLinks++
+  }
+
+  // These document-metadata elements cannot retain their semantics in the
+  // page-node body tree. Their custom-tag nodes are forbidden at render time,
+  // so remove them before mapping instead of leaving inert div husks.
+  for (const el of Array.from(doc.querySelectorAll('meta, base'))) {
+    el.remove()
+    report.metadataElements++
+  }
+
+  // Plugin and legacy frame elements are forbidden custom tags. Removing a
+  // parent also removes any fallback descendants: those children were only
+  // meant to render when the unsupported embedded resource failed.
+  for (const el of Array.from(doc.querySelectorAll('frame, frameset, object, embed, applet'))) {
+    el.remove()
+    report.embeddedElements++
+  }
+
+  // Preserve exactly the iframe sources that the mapping rules turn into a
+  // real base.video node. Everything else would become a forbidden custom-tag
+  // container and publish as an inert div.
+  for (const el of Array.from(doc.querySelectorAll('iframe'))) {
+    if (isTrustedVideoIframeSrc(el.getAttribute('src') ?? '')) continue
+    el.remove()
+    report.untrustedIframes++
   }
 
   // Strip event-handler attributes (counted) and the now-harvested inline

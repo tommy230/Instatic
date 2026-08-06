@@ -69,7 +69,7 @@ const CUSTOM_TAG_PATTERN = /^[a-z][a-z0-9-]{0,31}$/i
  * `htmlTag`, not this resolver, so blocking `iframe` here does not affect video
  * embeds — it only stops a container/loop/outlet author typing a dangerous tag.
  */
-const FORBIDDEN_CUSTOM_HTML_TAGS: ReadonlySet<string> = new Set([
+export const FORBIDDEN_CUSTOM_HTML_TAGS: ReadonlySet<string> = new Set([
   'script', 'iframe', 'frame', 'frameset', 'object', 'embed',
   'applet', 'base', 'link', 'meta', 'style',
 ])

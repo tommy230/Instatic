@@ -1403,16 +1403,16 @@ describe('base.video — <iframe> import mapping', () => {
     expect(node.props.videoUrl).toBe('https://iframe.videodelivery.net/0123456789abcdef')
   })
 
-  it('Google Maps iframe → falls back to base.container', () => {
-    const node = single('<iframe src="https://maps.google.com/maps?q=London"></iframe>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.customTag).toBe('iframe')
+  it('Google Maps iframe is stripped', () => {
+    const result = imported('<iframe src="https://maps.google.com/maps?q=London"></iframe>')
+    expect(result.rootIds).toHaveLength(0)
+    expect(result.stripped.untrustedIframes).toBe(1)
   })
 
-  it('arbitrary iframe → falls back to base.container (no moduleId base.video)', () => {
-    const node = single('<iframe src="https://example.com/form"></iframe>')
-    expect(node.moduleId).toBe('base.container')
-    expect(node.props.customTag).toBe('iframe')
+  it('arbitrary iframe is stripped instead of becoming a container husk', () => {
+    const result = imported('<iframe src="https://example.com/form"></iframe>')
+    expect(result.rootIds).toHaveLength(0)
+    expect(result.stripped.untrustedIframes).toBe(1)
   })
 
   it('YouTube iframe produces no children (recurse: false)', () => {
