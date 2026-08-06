@@ -8,7 +8,7 @@
 import type { StyleRule, ConditionDef } from '@core/page-tree'
 import type { ImportFragment } from '@core/htmlImport'
 import type { FontFileFormat } from '@core/fonts'
-import type { SiteScriptFormat } from '@core/site-runtime'
+import type { AuthoredScriptAttribute, SiteScriptFormat } from '@core/site-runtime'
 
 // ---------------------------------------------------------------------------
 // NewStyleRule — a StyleRule ready to insert (sans identity fields)
@@ -257,11 +257,7 @@ export interface ImportScriptDependency {
   version: string
 }
 
-/**
- * A JavaScript file linked by one or more imported HTML pages. Committed as a
- * `SiteFile` (`type: 'script'`) plus page-scoped `site.runtime.scripts` entry.
- * `content` is the decoded UTF-8 source.
- */
+/** Imported JavaScript committed as a `SiteFile` plus page-scoped runtime entry. */
 export interface ImportScript {
   /** FileMap path of the source file (e.g. `scripts/app.js`). */
   path: string
@@ -277,6 +273,8 @@ export interface ImportScript {
   priority: number
   /** npm dependencies needed by this module script after import conversion. */
   dependencies?: ImportScriptDependency[]
+  authoredAttributes?: AuthoredScriptAttribute[]
+  srcFragment?: string
 }
 
 /**
@@ -328,10 +326,7 @@ export interface ImportStylesheet {
   priority: number
 }
 
-/**
- * A script tag discovered while planning one HTML page, preserving source
- * order across inline executable JavaScript and external `<script src>` tags.
- */
+/** One page's executable script tag, retained in source order. */
 export type PageScript =
   | {
     kind: 'external'
@@ -339,6 +334,8 @@ export type PageScript =
     path: string
     /** Loader semantics from the source HTML. */
     format: SiteScriptFormat
+    authoredAttributes: AuthoredScriptAttribute[]
+    srcFragment?: string
   }
   | {
     kind: 'inline'

@@ -150,6 +150,8 @@ function buildClassicRuntimeFiles(
       placement: script.config.placement,
       timing: script.config.timing,
       priority: script.config.priority,
+      ...(script.config.authoredAttributes ? { authoredAttributes: script.config.authoredAttributes } : {}),
+      ...(script.config.srcFragment ? { srcFragment: script.config.srcFragment } : {}),
     })
   }
 
@@ -449,6 +451,8 @@ export async function buildSiteRuntimeScripts(
           placement: script.config.placement,
           timing: script.config.timing,
           priority: script.config.priority,
+          ...(script.config.authoredAttributes ? { authoredAttributes: script.config.authoredAttributes } : {}),
+          ...(script.config.srcFragment ? { srcFragment: script.config.srcFragment } : {}),
         }
       })
       .filter((script): script is PublishedRuntimeScriptAsset => script !== null)

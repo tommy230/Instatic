@@ -1,4 +1,5 @@
 export type {
+  AuthoredScriptAttribute,
   LockedSiteDependency,
   PublishedPageRuntimeAssets,
   PublishedRuntimeScriptAsset,

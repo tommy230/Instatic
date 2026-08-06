@@ -76,6 +76,13 @@ const SiteScriptFormatSchema = Type.Union([
 
 export type SiteScriptFormat = Static<typeof SiteScriptFormatSchema>
 
+const AuthoredScriptAttributeSchema = Type.Object({
+  name: Type.String(),
+  value: Type.Optional(Type.String()),
+})
+
+export type AuthoredScriptAttribute = Static<typeof AuthoredScriptAttributeSchema>
+
 // ---------------------------------------------------------------------------
 // SiteAssetScope — discriminated union on `type`
 //
@@ -107,6 +114,8 @@ const SiteScriptRuntimeConfigSchema = Type.Object({
   timing: SiteScriptTimingSchema,
   scope: SiteAssetScopeSchema,
   priority: Type.Number(),
+  authoredAttributes: Type.Optional(Type.Array(AuthoredScriptAttributeSchema)),
+  srcFragment: Type.Optional(Type.String()),
 })
 
 export type SiteScriptRuntimeConfig = Static<typeof SiteScriptRuntimeConfigSchema>
@@ -268,6 +277,8 @@ const PublishedRuntimeScriptAssetSchema = Type.Object({
   timing: SiteScriptTimingSchema,
   priority: Type.Number(),
   integrity: Type.Optional(Type.String()),
+  authoredAttributes: Type.Optional(Type.Array(AuthoredScriptAttributeSchema)),
+  srcFragment: Type.Optional(Type.String()),
 })
 
 export type PublishedRuntimeScriptAsset = Static<typeof PublishedRuntimeScriptAssetSchema>

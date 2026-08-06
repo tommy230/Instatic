@@ -264,7 +264,41 @@ describe('buildImportPlan — structure', () => {
     expect(plan.scripts.map((s) => s.format)).toEqual(['classic', 'module'])
     expect(plan.scripts.map((s) => s.pageSources)).toEqual([['index.html'], ['index.html']])
     expect(plan.scripts.map((s) => s.priority)).toEqual([100, 101])
+    expect(plan.scripts[0]?.authoredAttributes).toEqual([
+      { name: 'src', value: 'scripts/vendor.js' },
+    ])
     expect(plan.scripts.map((s) => s.path)).not.toContain('scripts/unused.js')
+  })
+
+  it('keeps separate runtime scripts when pages configure the same source differently', () => {
+    const encoder = new TextEncoder()
+    const p = buildImportPlan({
+      fileMap: {
+        files: {
+          'index.html': {
+            bytes: encoder.encode('<script src="scripts/widget.js" data-target="#home"></script>'),
+            mimeType: 'text/html',
+          },
+          'about.html': {
+            bytes: encoder.encode('<script src="scripts/widget.js" data-target="#about"></script>'),
+            mimeType: 'text/html',
+          },
+          'scripts/widget.js': {
+            bytes: encoder.encode('window.widgetLoaded = true'),
+            mimeType: 'text/javascript',
+          },
+        },
+      },
+      currentSite: makeEmptySiteDocument(),
+    })
+
+    expect(p.scripts).toHaveLength(2)
+    expect(p.scripts.map((script) => script.pageSources)).toEqual([['about.html'], ['index.html']])
+    expect(p.scripts.map((script) => script.authoredAttributes?.find((attribute) => attribute.name === 'data-target')))
+      .toEqual([
+        { name: 'data-target', value: '#about' },
+        { name: 'data-target', value: '#home' },
+      ])
   })
 
   it('converts npm CDN module imports into package dependencies', () => {

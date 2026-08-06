@@ -207,11 +207,13 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
   const warnings: ImportWarning[] = []
   const rawPagePlans: PagePlan[] = []
   const inlineCssByPage = new Map<string, string>()
-  const scriptsByPath = new Map<string, {
+  const scriptsByIdentity = new Map<string, {
     path: string
     content: string
     format: ImportScript['format']
     dependencies: ImportScript['dependencies']
+    authoredAttributes: ImportScript['authoredAttributes']
+    srcFragment: ImportScript['srcFragment']
     pageSources: Set<string>
     priority: number
   }>()
@@ -252,7 +254,13 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
     if (inlineCss.trim().length > 0) inlineCssByPage.set(pagePlan.source, inlineCss)
     for (const [documentPosition, pageScript] of pagePlan.scripts.entries()) {
       const scriptPath = pageScript.path
-      const existing = scriptsByPath.get(scriptPath)
+      const scriptIdentity = JSON.stringify([
+        scriptPath,
+        pageScript.format,
+        pageScript.kind === 'external' ? pageScript.authoredAttributes : [],
+        pageScript.kind === 'external' ? pageScript.srcFragment : undefined,
+      ])
+      const existing = scriptsByIdentity.get(scriptIdentity)
       if (existing) {
         existing.pageSources.add(pagePlan.source)
         continue
@@ -264,11 +272,13 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
       if (content === null) continue
       const script = normalizeImportedScriptContent(content, pageScript.format)
 
-      scriptsByPath.set(scriptPath, {
+      scriptsByIdentity.set(scriptIdentity, {
         path: scriptPath,
         content: script.content,
         format: pageScript.format,
         dependencies: script.dependencies,
+        authoredAttributes: pageScript.kind === 'external' ? pageScript.authoredAttributes : undefined,
+        srcFragment: pageScript.kind === 'external' ? pageScript.srcFragment : undefined,
         pageSources: new Set([pagePlan.source]),
         priority: PRIORITY_BASE + documentPosition,
       })
@@ -282,7 +292,7 @@ function collectHtmlPagePlans(classified: ClassifiedFile[], fileMap: FileMap): H
     (a, b) => (classifiedOrder.get(a.source) ?? 0) - (classifiedOrder.get(b.source) ?? 0),
   )
 
-  const scripts: ImportScript[] = [...scriptsByPath.values()].map((script) => ({
+  const scripts: ImportScript[] = [...scriptsByIdentity.values()].map((script) => ({
     ...script,
     pageSources: [...script.pageSources],
   }))

@@ -75,6 +75,18 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+function authoredScriptAttributes(value: unknown): SiteScriptRuntimeConfig['authoredAttributes'] {
+  if (!Array.isArray(value)) return undefined
+  return value.flatMap((attribute) => {
+    if (!isRecord(attribute) || typeof attribute.name !== 'string') return []
+    if (attribute.value !== undefined && typeof attribute.value !== 'string') return []
+    return [{
+      name: attribute.name,
+      ...(typeof attribute.value === 'string' ? { value: attribute.value } : {}),
+    }]
+  })
+}
+
 /**
  * Normalise the shared scope union used by both scripts and stylesheets.
  * Unknown / malformed input collapses to `all-pages` — the safe default that
@@ -89,6 +101,7 @@ function normalizeAssetScope(raw: unknown): SiteAssetScope {
 
 export function normalizeScriptRuntimeConfig(raw: unknown): SiteScriptRuntimeConfig {
   if (!isRecord(raw)) return { ...DEFAULT_SCRIPT_RUNTIME_CONFIG }
+  const attributes = authoredScriptAttributes(raw.authoredAttributes)
 
   return {
     enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_SCRIPT_RUNTIME_CONFIG.enabled,
@@ -104,6 +117,8 @@ export function normalizeScriptRuntimeConfig(raw: unknown): SiteScriptRuntimeCon
       : DEFAULT_SCRIPT_RUNTIME_CONFIG.timing,
     scope: normalizeAssetScope(raw.scope),
     priority: finiteNumberOr(raw.priority, DEFAULT_SCRIPT_RUNTIME_CONFIG.priority),
+    ...(attributes ? { authoredAttributes: attributes } : {}),
+    ...(typeof raw.srcFragment === 'string' ? { srcFragment: raw.srcFragment } : {}),
   }
 }
 

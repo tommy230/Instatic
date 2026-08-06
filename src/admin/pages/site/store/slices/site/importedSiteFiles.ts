@@ -39,6 +39,8 @@ export function addImportedScripts(
       ...DEFAULT_SCRIPT_RUNTIME_CONFIG,
       format: script.format,
       priority: script.priority,
+      ...(script.authoredAttributes ? { authoredAttributes: script.authoredAttributes } : {}),
+      ...(script.srcFragment ? { srcFragment: script.srcFragment } : {}),
       scope: pageIds.length > 0
         ? { type: 'pages' as const, pageIds }
         : DEFAULT_SCRIPT_RUNTIME_CONFIG.scope,

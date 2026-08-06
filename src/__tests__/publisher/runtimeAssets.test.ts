@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { publishPage } from '@core/publisher'
-import type { PublishedPageRuntimeAssets } from '@core/site-runtime'
+import { scriptTagsForRuntimeAssets, type PublishedPageRuntimeAssets } from '@core/site-runtime'
 import { makeModule, makePage, makeRegistry, makeSite } from './helpers'
 
 const registry = makeRegistry({
@@ -113,5 +113,101 @@ describe('publishPage runtime assets', () => {
     expect(html).not.toContain('cdn.example.com')
     expect(html).not.toContain('javascript:alert')
     expect(html).not.toContain('../escape.js')
+  })
+
+  it('emits safe authored script attributes after managed attributes', () => {
+    const runtimeAssets: PublishedPageRuntimeAssets = {
+      scripts: [{
+        fileId: 'illustrata',
+        src: '/_instatic/assets/runtime/widget.js',
+        format: 'classic',
+        placement: 'body-end',
+        timing: 'dom-ready',
+        priority: 10,
+        authoredAttributes: [
+          { name: 'src', value: 'https://widget.cloud.illustrata.io/widget.js' },
+          { name: 'type', value: 'text/javascript' },
+          { name: 'data-instatic-runtime-script', value: 'authored-marker' },
+          { name: 'data-embed-token', value: 'token-"one"&two' },
+          { name: 'data-api-base', value: 'https://api.cloud.illustrata.io?a=1&b=2' },
+          { name: 'data-target', value: '#illustrata-embed-1' },
+          { name: 'defer' },
+          { name: 'onclick', value: 'alert(1)' },
+          { name: 'ONLOAD', value: 'alert(2)' },
+          { name: 'x onload', value: 'alert(3)' },
+          { name: 'data-target', value: '#duplicate-loses' },
+        ],
+      }],
+    }
+
+    expect(scriptTagsForRuntimeAssets(runtimeAssets, 'body-end')).toBe(
+      '  <script src="/_instatic/assets/runtime/widget.js" data-instatic-runtime-script="illustrata" data-embed-token="token-&quot;one&quot;&amp;two" data-api-base="https://api.cloud.illustrata.io?a=1&amp;b=2" data-target="#illustrata-embed-1" defer></script>',
+    )
+  })
+
+  it('appends an authored src fragment to a rewritten local asset without doubling existing fragments', () => {
+    const base = {
+      format: 'classic' as const,
+      placement: 'body-end' as const,
+      timing: 'dom-ready' as const,
+      priority: 10,
+      srcFragment: '#xfbml=1&version=v25.0',
+    }
+    const runtimeAssets: PublishedPageRuntimeAssets = {
+      scripts: [
+        { ...base, fileId: 'rewritten', src: '/_instatic/assets/runtime/sdk.js' },
+        { ...base, fileId: 'unchanged', src: '/_instatic/assets/runtime/sdk.js#existing' },
+      ],
+    }
+
+    const tags = scriptTagsForRuntimeAssets(runtimeAssets, 'body-end')
+    expect(tags).toContain('src="/_instatic/assets/runtime/sdk.js#xfbml=1&amp;version=v25.0"')
+    expect(tags).toContain('src="/_instatic/assets/runtime/sdk.js#existing"')
+    expect(tags).not.toContain('#existing#xfbml')
+  })
+
+  it('lets managed integrity win while retaining authored crossorigin without integrity', () => {
+    const runtimeAssets: PublishedPageRuntimeAssets = {
+      scripts: [
+        {
+          fileId: 'managed',
+          src: '/managed.js',
+          placement: 'head',
+          timing: 'immediate',
+          priority: 10,
+          integrity: 'sha384-managed',
+          authoredAttributes: [
+            { name: 'integrity', value: 'sha384-authored' },
+            { name: 'crossorigin', value: 'use-credentials' },
+          ],
+        },
+        {
+          fileId: 'authored',
+          src: '/authored.js',
+          placement: 'head',
+          timing: 'immediate',
+          priority: 20,
+          authoredAttributes: [{ name: 'crossorigin', value: 'use-credentials' }],
+        },
+      ],
+    }
+
+    const tags = scriptTagsForRuntimeAssets(runtimeAssets, 'head')
+    expect(tags).toContain('integrity="sha384-managed" crossorigin="anonymous"')
+    expect(tags).not.toContain('sha384-authored')
+    expect(tags).toContain('data-instatic-runtime-script="authored" crossorigin="use-credentials"')
+  })
+
+  it('keeps output byte-identical when no authored metadata is present', () => {
+    expect(scriptTagsForRuntimeAssets({ scripts: [{
+      fileId: 'classic',
+      src: '/classic.js',
+      format: 'classic',
+      placement: 'body-end',
+      timing: 'dom-ready',
+      priority: 10,
+    }] }, 'body-end')).toBe(
+      '  <script src="/classic.js" data-instatic-runtime-script="classic"></script>',
+    )
   })
 })
