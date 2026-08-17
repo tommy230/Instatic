@@ -64,7 +64,10 @@ function patchWithReplay(
         callEventListener(
           target,
           listener,
-          new win.Event(replayType, { bubbles: false, cancelable: false }),
+          new (win as Window & typeof globalThis).Event(replayType, {
+            bubbles: false,
+            cancelable: false,
+          }),
         )
       }, 0)
       return

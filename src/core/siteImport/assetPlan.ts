@@ -278,7 +278,6 @@ function buildFontFamilies(
       // the kit terms for no gain. Keep the face verbatim rather than dropping
       // it — dropping is what left redrockscafe.com with 26 `rift` usages and
       // no face to satisfy them, so every heading fell back to a wide sans.
-      let externalOrigin: string | null = null
       if (!best) {
         for (const [index, rawUrl] of face.srcUrls.entries()) {
           if (!/^https:\/\//i.test(rawUrl)) continue
@@ -292,6 +291,7 @@ function buildFontFamilies(
           }
         }
         if (best) {
+          let externalOrigin: string | null
           try {
             externalOrigin = new URL(best.src).origin
           } catch {

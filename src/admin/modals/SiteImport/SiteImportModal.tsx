@@ -218,7 +218,7 @@ export function SiteImportModal({ onCmsBundleImportComplete }: SiteImportModalPr
     const importPlan = buildImportPlan({
       fileMap: map,
       currentSite,
-      options: { mediaTolerance: 10, stylesheetModes: modes },
+      options: { stylesheetModes: modes },
     })
     setFileMap(map)
     setPlan(importPlan)
