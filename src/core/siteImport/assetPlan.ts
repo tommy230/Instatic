@@ -594,9 +594,12 @@ function resolveAndRecord(
 ): string | null {
   if (!rawUrl || EXTERNAL_URL_RE.test(rawUrl)) return null
 
-  const fileMapKey = resolveRelativePath(rawUrl, basePath)
-  if (!fileMapKey) return null
+  const resolvedKey = resolveRelativePath(rawUrl, basePath)
+  if (!resolvedKey) return null
 
+  const fileMapKey = fileMap.files[resolvedKey]
+    ? resolvedKey
+    : `passthrough/${resolvedKey}`
   const entry = fileMap.files[fileMapKey]
   if (!entry) return null
 

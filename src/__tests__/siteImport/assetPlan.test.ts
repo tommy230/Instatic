@@ -45,6 +45,49 @@ describe('buildAssetPlan — img src normalisation', () => {
     expect(assets.some((a) => a.sourcePath === 'images/hero.png')).toBe(true)
   })
 
+  it('falls back to a passthrough FileMap key for a root-relative img src', () => {
+    const sourcePath = 'passthrough/wp-content/uploads/x.png'
+    const fileMap = makeFileMap({
+      'index.html': { bytes: txt('<html><body><img src="/wp-content/uploads/x.png"></body></html>') },
+      [sourcePath]: { bytes: MINIMAL_PNG, mimeType: 'image/png' },
+    })
+    const { pagePlan } = makeHtmlPagePlan(
+      'index.html',
+      new TextDecoder().decode(fileMap.files['index.html']!.bytes),
+      fileMap,
+    )
+    const { normalizedPagePlans, assets } = buildAssetPlan([pagePlan], [], fileMap)
+
+    const imageNode = Object.values(normalizedPagePlans[0].nodeFragment.nodes).find(
+      (node) => node.moduleId === 'base.image',
+    )
+    expect(imageNode?.props['src']).toBe(sourcePath)
+    expect(assets.some((asset) => asset.sourcePath === sourcePath)).toBe(true)
+  })
+
+  it('prefers an exact FileMap key over its passthrough counterpart', () => {
+    const exactPath = 'wp-content/uploads/x.png'
+    const passthroughPath = `passthrough/${exactPath}`
+    const exactBytes = txt('exact')
+    const fileMap = makeFileMap({
+      'index.html': { bytes: txt('<html><body><img src="/wp-content/uploads/x.png"></body></html>') },
+      [exactPath]: { bytes: exactBytes, mimeType: 'image/png' },
+      [passthroughPath]: { bytes: txt('passthrough'), mimeType: 'image/png' },
+    })
+    const { pagePlan } = makeHtmlPagePlan(
+      'index.html',
+      new TextDecoder().decode(fileMap.files['index.html']!.bytes),
+      fileMap,
+    )
+    const { normalizedPagePlans, assets } = buildAssetPlan([pagePlan], [], fileMap)
+
+    const imageNode = Object.values(normalizedPagePlans[0].nodeFragment.nodes).find(
+      (node) => node.moduleId === 'base.image',
+    )
+    expect(imageNode?.props['src']).toBe(exactPath)
+    expect(assets.find((asset) => asset.sourcePath === exactPath)?.bytes).toBe(exactBytes)
+  })
+
   it('leaves external URLs unchanged', () => {
     const fileMap = makeFileMap({
       'index.html': { bytes: txt('<html><body><img src="https://cdn.example.com/img.png"></body></html>') },
