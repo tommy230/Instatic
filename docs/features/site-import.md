@@ -120,7 +120,8 @@ User drops files / folder / static .zip / CMS bundle .zip
             ▼
     buildAssetPlan(pagePlans, cssFileResults, fileMap, rawStylesheetSources)
             │  normalizes url() in node props, HTML attributes, CSS values, raw @keyframes
-            │  CSS, and kept-stylesheet text to FileMap keys
+            │  CSS, and kept-stylesheet text to FileMap keys; a key that misses
+            │  exactly is retried under passthrough/ before being dropped
             │  resolves @font-face → ImportFontFamily[]
             │  flattens kept stylesheets (mode 'file') → ImportStylesheet[]
             │  collects deduplicated asset list
