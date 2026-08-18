@@ -337,6 +337,11 @@ describe('captureAgentRenderSnapshot — on-demand browser bridge', () => {
     wrapper.style.backgroundClip = 'text'
     wrapper.style.setProperty('-webkit-background-clip', 'text')
     wrapper.style.setProperty('-webkit-text-fill-color', 'transparent')
+    wrapper.style.fontWeight = '700'
+    wrapper.style.fontFamily = 'Georgia, serif'
+    wrapper.style.fontStyle = 'italic'
+    wrapper.style.textTransform = 'uppercase'
+    wrapper.style.letterSpacing = '2px'
     setRect(wrapper, { x: 8, y: 16, width: 420, height: 64 })
     body.appendChild(wrapper)
 
@@ -354,6 +359,11 @@ describe('captureAgentRenderSnapshot — on-demand browser bridge', () => {
       backgroundClip: 'text',
       webkitBackgroundClip: 'text',
       webkitTextFillColor: 'transparent',
+      fontWeight: '700',
+      fontFamily: 'Georgia, serif',
+      fontStyle: 'italic',
+      textTransform: 'uppercase',
+      letterSpacing: '2px',
     })
     expect(snapshot!.layout.warnings.some((warning) =>
       warning.type === 'horizontal-overflow' && warning.nodeId === 'title',

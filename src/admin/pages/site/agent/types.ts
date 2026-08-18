@@ -214,6 +214,11 @@ export interface AgentLayoutNodeContext {
     webkitBackgroundClip: string
     webkitTextFillColor: string
     fontSize: string
+    fontWeight: string
+    fontFamily: string
+    fontStyle: string
+    textTransform: string
+    letterSpacing: string
     lineHeight: string
   }
 }

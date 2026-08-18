@@ -322,6 +322,11 @@ function collectNodeLayout(
       webkitBackgroundClip: computed.getPropertyValue('-webkit-background-clip'),
       webkitTextFillColor: computed.getPropertyValue('-webkit-text-fill-color'),
       fontSize: computed.fontSize,
+      fontWeight: computed.fontWeight,
+      fontFamily: computed.fontFamily,
+      fontStyle: computed.fontStyle,
+      textTransform: computed.textTransform,
+      letterSpacing: computed.letterSpacing,
       lineHeight: computed.lineHeight,
     },
   }
