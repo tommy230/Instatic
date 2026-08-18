@@ -27,6 +27,8 @@
  */
 import { copyFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { serveStaticFile } from '../static'
+import { getPublishedDir } from './staticArtefact'
 
 /** Namespaces the publisher owns. A passthrough file may not enter them. */
 const RESERVED_PREFIXES = ['_instatic', 'uploads']
@@ -100,4 +102,16 @@ export async function copyPassthroughAssets(
   }
 
   return result
+}
+
+/** Serve a published passthrough file without shadowing page routes. */
+export async function servePublishedPassthroughAsset(
+  req: Request,
+  uploadsDir: string | undefined,
+  pathname: string,
+): Promise<Response | null> {
+  if (req.method !== 'GET' || !uploadsDir) return null
+  if (pathname === '/' || pathname.endsWith('.html') || pathname.endsWith('/')) return null
+  const currentSlot = join(getPublishedDir(uploadsDir), 'current')
+  return await serveStaticFile(currentSlot, pathname, req)
 }

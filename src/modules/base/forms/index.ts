@@ -33,12 +33,6 @@ import {
   SubmitEditor,
   TextareaEditor,
 } from './FormControls'
-import {
-  htmlAttributesAttr,
-  htmlAttributesControl,
-  HtmlAttributesPropSchemaOptions,
-} from '@modules/base/shared/htmlAttributes'
-
 const FormPropsSchema = Type.Object({
   mode: Type.Union([Type.Literal('cms'), Type.Literal('custom')], { default: 'cms' }),
   formId: Type.String({ default: 'form' }),

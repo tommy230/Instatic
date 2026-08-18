@@ -73,6 +73,7 @@ export function makeMockSiteDocument(): SiteDocument {
       },
     ],
     visualComponents: [],
+    layouts: [],
   }
 }
 
@@ -111,5 +112,6 @@ export function makeEmptySiteDocument(): SiteDocument {
       },
     ],
     visualComponents: [],
+    layouts: [],
   }
 }
