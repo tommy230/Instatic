@@ -113,6 +113,37 @@ describe('site runtime build', () => {
     ])
   })
 
+  it("bundles Vite's dynamic-import probe with files and no error diagnostics", async () => {
+    const site = runtimeSite({
+      files: [
+        {
+          id: 'entry',
+          path: 'src/scripts/entry.js',
+          type: 'script',
+          content: 'function probe() { return import("_") }',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    })
+
+    const result = await buildSiteRuntimeScripts({
+      site,
+      page,
+      target: 'publish',
+      assetBasePath: '/_instatic/assets/runtime/',
+    })
+
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([])
+    expect(result.files.length).toBeGreaterThan(0)
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'runtime-dependency-feature-probe',
+        severity: 'warning',
+      }),
+    )
+  })
+
   it('maps syntax diagnostics back to the authored script and source location', async () => {
     const site = runtimeSite({
       files: [

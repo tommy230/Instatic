@@ -10,7 +10,7 @@ import type {
 } from './schemas'
 
 /** Vite's dynamic-import feature probe: `import("_")`, never executed. */
-const VITE_DYNAMIC_IMPORT_PROBE = '_'
+export const VITE_DYNAMIC_IMPORT_PROBE = '_'
 
 const NODE_BUILTIN_PACKAGES = new Set([
   'assert',
