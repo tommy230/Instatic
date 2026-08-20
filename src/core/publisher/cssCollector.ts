@@ -21,14 +21,22 @@
 import type { SiteDocument } from '@core/page-tree'
 import { generateClassCSS } from './classCss'
 import type { ResponsiveCssOptions } from './responsiveBackground'
-import { collectUsedStyleRuleIds, treeShakeStyleRules } from './styleRuleTreeShake'
+import {
+  collectScriptClassNameTokens,
+  collectUsedStyleRuleIds,
+  treeShakeStyleRules,
+} from './styleRuleTreeShake'
 
 /**
  * Collect all user-authored CSS class declarations for the classes referenced
  * across a site's pages and VC trees. Framework-generated utilities are
  * emitted through `framework.css` by `generateFrameworkCss()` instead.
  *
- * Only emits CSS for classes actually used by at least one node (tree-shaking).
+ * Only emits CSS for classes actually used by at least one node (tree-shaking),
+ * where "used" also covers classes the site's shipped scripts can add at
+ * runtime (`collectScriptClassNameTokens`) — the published page runs those
+ * scripts, so their state classes are reachable even though no node carries
+ * them in the document.
  * Traverses both page nodes (flat map) and VisualComponent flat tree nodes
  * so that classes used inside VCs are also included.
  * Sanitised via sanitizeModuleCSS (Constraint #228).
@@ -43,6 +51,7 @@ export function collectClassCSS(site: SiteDocument, options: ResponsiveCssOption
   const usedClasses = treeShakeStyleRules(
     site.styleRules,
     collectUsedStyleRuleIds(site),
+    collectScriptClassNameTokens(site.files),
   )
 
   if (Object.keys(usedClasses).length === 0) return ''
