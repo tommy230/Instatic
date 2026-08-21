@@ -264,10 +264,18 @@ Class-free ambient selectors and supported raw blocks such as `@keyframes`
 remain conservative and global. This retains framework cascades such as `.row`
 plus `.row > *` without shipping thousands of unused utilities.
 
+Dependency follows selector semantics: a class inside `:not()` is never a
+dependency (the rule matches more when it is absent), and the alternatives of
+`:is()`/`:where()` are each sufficient rather than all required.
+
 Runtime code that constructs class names dynamically cannot be inferred from a
 static page tree. Those classes must be assigned in the editor (including to a
-hidden structural node) or the stylesheet should use `mode:'file'`, which is
-the explicit non-tree-shaken escape hatch for runtime-owned CSS.
+hidden structural node), the stylesheet should use `mode:'file'` (the explicit
+non-tree-shaken escape hatch for runtime-owned CSS), or the whole site opts
+out: `settings.publish.treeShakeStyleRules: false` makes the publisher and the
+canvas emit every registry rule. That is the setting for a captured site whose
+classes arrive from template `body` classes, theme scripts and routes that
+were never imported; import itself never writes it.
 
 The escape hatch for "this sheet's resets/styles must not leak into other pages at all" is no longer a generated scope class — it is keeping that sheet as a file (`mode: 'file'`), page-scoped via runtime config.
 

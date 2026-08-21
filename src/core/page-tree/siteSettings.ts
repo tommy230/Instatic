@@ -80,6 +80,25 @@ const ExtraHeadLinkSchema = Type.Object({
 export type ExtraHeadLink = Static<typeof ExtraHeadLinkSchema>
 
 // ---------------------------------------------------------------------------
+// SitePublishSettingsSchema — per-site publisher switches
+// ---------------------------------------------------------------------------
+
+/**
+ * `treeShakeStyleRules` (default on) lets the publisher and the canvas drop
+ * registry rules whose classes no node uses or no shipped script can add. The
+ * off position exists for captured sites: a migrated WordPress theme gets its
+ * classes from template `body` classes, runtime scripts and uncaptured routes,
+ * none of which a static page tree can prove, so the only faithful publish is
+ * every imported rule. Import never writes this field; the migration pipeline
+ * or an operator does, over the store API.
+ */
+const SitePublishSettingsSchema = Type.Object({
+  treeShakeStyleRules: Type.Optional(Type.Boolean()),
+})
+
+export type SitePublishSettings = Static<typeof SitePublishSettingsSchema>
+
+// ---------------------------------------------------------------------------
 // SiteSettingsSchema
 // ---------------------------------------------------------------------------
 
@@ -96,6 +115,8 @@ export const SiteSettingsSchema = Type.Object({
   contentSecurityPolicy: Type.Optional(SiteCspSettingsSchema),
   /** Extra `<head>` `<link>` tags — absent when the operator configured none. */
   extraHeadLinks: Type.Optional(Type.Array(ExtraHeadLinkSchema)),
+  /** Publisher switches — absent when every default applies. */
+  publish: Type.Optional(SitePublishSettingsSchema),
   /** Keyboard shortcut overrides — defaults to {} — handled in parseSiteSettings. */
   shortcuts: Type.Record(Type.String(), Type.String()),
 })
@@ -144,6 +165,8 @@ export function parseSiteSettings(raw: unknown): SiteSettings {
 
   const extraHeadLinks = parseExtraHeadLinks(r.extraHeadLinks)
 
+  const publish = parseSitePublishSettings(r.publish)
+
   return {
     ...(typeof r.metaTitle === 'string' ? { metaTitle: r.metaTitle } : {}),
     ...(typeof r.metaDescription === 'string' ? { metaDescription: r.metaDescription } : {}),
@@ -153,8 +176,21 @@ export function parseSiteSettings(raw: unknown): SiteSettings {
     fonts,
     ...(contentSecurityPolicy ? { contentSecurityPolicy } : {}),
     ...(extraHeadLinks ? { extraHeadLinks } : {}),
+    ...(publish ? { publish } : {}),
     shortcuts,
   }
+}
+
+/**
+ * Parse the publisher switches, keeping only recognised boolean fields.
+ * Returns `undefined` when nothing usable is present so the field stays
+ * absent rather than persisting an empty object on every site.
+ */
+function parseSitePublishSettings(raw: unknown): SitePublishSettings | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const source = raw as Record<string, unknown>
+  if (typeof source.treeShakeStyleRules !== 'boolean') return undefined
+  return { treeShakeStyleRules: source.treeShakeStyleRules }
 }
 
 /**

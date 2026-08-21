@@ -50,6 +50,7 @@ import { styleRuleSelector, type ConditionDef, type StyleRule } from '@core/page
 import {
   collectBackgroundImagePaths,
   collectSiteStyleBackgroundImagePaths,
+  selectAllStyleRulesByIdentity,
   treeShakeStyleRulesBySignature,
   usedStyleRuleIdSignature,
 } from '@core/publisher'
@@ -122,10 +123,14 @@ export function ClassStyleInjector({ targetDocument, viewport }: ClassStyleInjec
   const previewClassStyles = useEditorStore((s) => s.previewClassStyles)
   const activeClassId = useEditorStore((s) => s.activeClassId)
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId)
-  const canvasClasses = treeShakeStyleRulesBySignature(
-    classes ?? EMPTY_STYLE_RULES,
-    usedClassIdSignature,
+  // Same switch the publisher reads (`styleRuleTreeShakeEnabled`), so the
+  // canvas and the published site agree on which registry rules exist.
+  const treeShakeEnabled = useEditorStore(
+    (s) => s.site?.settings.publish?.treeShakeStyleRules !== false,
   )
+  const canvasClasses = treeShakeEnabled
+    ? treeShakeStyleRulesBySignature(classes ?? EMPTY_STYLE_RULES, usedClassIdSignature)
+    : selectAllStyleRulesByIdentity(classes ?? EMPTY_STYLE_RULES)
   const backgroundPaths = [
     ...collectSiteStyleBackgroundImagePaths({ styleRules: canvasClasses }),
     ...collectBackgroundImagePaths(previewClassStyles?.styles.backgroundImage),

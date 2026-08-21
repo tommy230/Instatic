@@ -763,6 +763,20 @@ describe('collectClassCSS', () => {
     expect(collectClassCSS(site)).toBe('')
   })
 
+  it('emits every rule when settings.publish.treeShakeStyleRules is false', () => {
+    const site = makeSite(
+      {
+        used: makeClass('used', { color: 'green' }),
+        unused: makeClass('unused', { color: 'red' }),
+      },
+      { child1: ['used'] },
+    )
+    site.settings.publish = { treeShakeStyleRules: false }
+    const css = collectClassCSS(site)
+    expect(css).toContain('.used {')
+    expect(css).toContain('.unused {')
+  })
+
   it('only emits CSS for classes actually used by nodes (tree-shaking)', () => {
     const site = makeSite(
       {

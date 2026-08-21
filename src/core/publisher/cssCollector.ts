@@ -24,6 +24,7 @@ import type { ResponsiveCssOptions } from './responsiveBackground'
 import {
   collectScriptClassNameTokens,
   collectUsedStyleRuleIds,
+  selectAllStyleRules,
   treeShakeStyleRules,
 } from './styleRuleTreeShake'
 
@@ -36,7 +37,10 @@ import {
  * where "used" also covers classes the site's shipped scripts can add at
  * runtime (`collectScriptClassNameTokens`) — the published page runs those
  * scripts, so their state classes are reachable even though no node carries
- * them in the document.
+ * them in the document. A site whose `settings.publish.treeShakeStyleRules`
+ * is `false` opts out of the analysis and publishes every registry rule
+ * (`selectAllStyleRules`): the right call for captured sites whose classes
+ * arrive from places a static tree cannot prove.
  * Traverses both page nodes (flat map) and VisualComponent flat tree nodes
  * so that classes used inside VCs are also included.
  * Sanitised via sanitizeModuleCSS (Constraint #228).
@@ -44,15 +48,24 @@ import {
  * @param site The site containing the class registry, page nodes, and VCs.
  * @returns A CSS string of all used class-name rules, or empty string if none.
  */
+/** The publisher switch: tree shaking is on unless the site turned it off. */
+export function styleRuleTreeShakeEnabled(
+  site: Pick<SiteDocument, 'settings'>,
+): boolean {
+  return site.settings?.publish?.treeShakeStyleRules !== false
+}
+
 export function collectClassCSS(site: SiteDocument, options: ResponsiveCssOptions = {}): string {
   // Defensive guard: corrupted/partial snapshots may have classes undefined
   if (!site.styleRules) return ''
 
-  const usedClasses = treeShakeStyleRules(
-    site.styleRules,
-    collectUsedStyleRuleIds(site),
-    collectScriptClassNameTokens(site.files),
-  )
+  const usedClasses = styleRuleTreeShakeEnabled(site)
+    ? treeShakeStyleRules(
+        site.styleRules,
+        collectUsedStyleRuleIds(site),
+        collectScriptClassNameTokens(site.files),
+      )
+    : selectAllStyleRules(site.styleRules)
 
   if (Object.keys(usedClasses).length === 0) return ''
 

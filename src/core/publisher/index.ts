@@ -66,11 +66,18 @@ export {
 } from './responsiveBackground'
 export type { ResponsiveCssOptions } from './responsiveBackground'
 
-export { collectClassCSS, CssCollector, sanitizeModuleCSS } from './cssCollector'
+export {
+  collectClassCSS,
+  CssCollector,
+  sanitizeModuleCSS,
+  styleRuleTreeShakeEnabled,
+} from './cssCollector'
 export {
   collectScriptClassNameTokens,
   scriptCanAddClassName,
   collectUsedStyleRuleIds,
+  selectAllStyleRules,
+  selectAllStyleRulesByIdentity,
   treeShakeStyleRules,
   treeShakeStyleRulesBySignature,
   usedStyleRuleIdSignature,

@@ -232,3 +232,76 @@ describe('scriptCanAddClassName', () => {
     expect(scriptCanAddClassName('never-touched', tokens)).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// treeShakeStyleRules — selector semantics: negation and alternation.
+//
+// Regression shape from villagechurchepc.org: the theme pads every desktop
+// header link with `.x-navbar .desktop .x-nav > li > a:not(.x-btn-navbar-woocommerce)
+// { padding: 0 20px }`. No node on the site carries the WooCommerce class, so
+// reading `:not(.x)` as a dependency on `.x` dropped the rule and the published
+// header links sat flush against each other. A negated class is the opposite
+// of a dependency: the selector matches MORE elements when it is absent.
+// ---------------------------------------------------------------------------
+
+import { selectAllStyleRules } from '@core/publisher'
+
+describe('treeShakeStyleRules — negation and alternation semantics', () => {
+  const known = (id: string, name: string): StyleRule =>
+    rule(id, name, `.${name}`, {})
+
+  const rules: Record<string, StyleRule> = {
+    navbar: known('navbar', 'x-navbar'),
+    nav: known('nav', 'x-nav'),
+    woo: known('woo', 'x-btn-navbar-woocommerce'),
+    p1: known('p1', 'p1'),
+    p2: known('p2', 'p2'),
+    gone: known('gone', 'gone'),
+    padding: ambient('padding', '.x-navbar .x-nav > li > a:not(.x-btn-navbar-woocommerce)'),
+    notList: ambient('notList', '.x-nav a:not(.gone, .x-btn-navbar-woocommerce)'),
+    nestedNot: ambient('nestedNot', '.x-nav:not(:is(.gone, .p2)) a'),
+    where: ambient('where', '.x-navbar:where(.p1, .p2) .x-nav'),
+    whereDead: ambient('whereDead', '.x-navbar:where(.gone, .p2) .x-nav'),
+    is: ambient('is', ':is(.gone, .x-nav) a'),
+    has: ambient('has', '.x-navbar:has(.gone)'),
+    escaped: ambient('escaped', '.hover\\:not-gone:hover .x-nav'),
+    attr: ambient('attr', '.x-nav a[title=":not(.gone)"]'),
+  }
+  const used = new Set(['navbar', 'nav', 'p1'])
+  const shaken = treeShakeStyleRules(rules, used)
+
+  it('does not treat a negated class as a dependency', () => {
+    expect(shaken.padding).toBeDefined()
+    expect(shaken.notList).toBeDefined()
+    expect(shaken.nestedNot).toBeDefined()
+  })
+
+  it('treats :is()/:where() arguments as alternatives, not a conjunction', () => {
+    expect(shaken.where).toBeDefined()
+    expect(shaken.is).toBeDefined()
+  })
+
+  it('still drops a rule whose every alternative depends on an unused class', () => {
+    expect(shaken.whereDead).toBeUndefined()
+  })
+
+  it('still treats :has() arguments as required', () => {
+    expect(shaken.has).toBeUndefined()
+  })
+
+  it('ignores pseudo-shaped text inside escapes and attribute strings', () => {
+    expect(shaken.escaped).toBeDefined()
+    expect(shaken.attr).toBeDefined()
+  })
+})
+
+describe('selectAllStyleRules', () => {
+  it('keeps every rule regardless of usage, minus framework-generated ones', () => {
+    const generated = {
+      ...rule('gen', 'gen', '.gen', {}),
+      generated: { origin: 'framework', locked: true },
+    } as unknown as StyleRule
+    const all = selectAllStyleRules({ ...styleRules, gen: generated })
+    expect(Object.keys(all).sort()).toEqual(['r1', 'r2', 'r3', 'r4', 'r5'])
+  })
+})

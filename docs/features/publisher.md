@@ -211,7 +211,10 @@ page and Visual Component trees. A class rule emits only when its id is used
 and every known class dependency in its preserved selector is used. Ambient
 selector fragments emit when at least one selector-list alternative has all of
 its known class dependencies in use; class-free selectors and supported raw
-blocks stay conservative. The editor canvas calls the same selector and
+blocks stay conservative. Classes inside `:not()` are not dependencies and
+`:is()`/`:where()` alternatives are each sufficient. A site with
+`settings.publish.treeShakeStyleRules: false` skips the shake and emits every
+registry rule (`selectAllStyleRules`), in the canvas as well as here. The editor canvas calls the same selector and
 memoizes the filtered registry by immutable registry identity + used-id
 signature, so large imported utility catalogs do not become large iframe
 stylesheets. A full precompiled Tailwind catalog can therefore remain
