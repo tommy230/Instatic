@@ -312,3 +312,203 @@ describe('stylesheet mode: file', () => {
     ])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Cross-sheet renames must never half-apply
+//
+// Regression shapes from the August 20 2026 re-imports:
+//
+//   890capital.com — `#section-2-15 > .ct-section-inner-wrap { padding-top:184px }`
+//   is the hero's top padding. It is a class-kind rule (the binding class is
+//   the rightmost one), so the conflict resolver treated it as a fragment of
+//   the `ct-section-inner-wrap` DEFINITION: its divergence from the other
+//   pages' scoped rules invented a conflict, and resolving that conflict
+//   deleted the rule and flattened its padding onto the bare class. The header
+//   content sat 184px too high and every other inner wrap on the page gained
+//   padding it never had.
+//
+//   amongworlds.com — `.cnvs-block-posts-1649131008311 .cs-entry__title-wrapper
+//   { color:#FFFFFF !important }` scopes white text to one block. Flattened
+//   onto the bare class it painted every post title white.
+//
+// A selector that only matches inside some ancestor is not part of the class's
+// definition: it lives in the registry under its own selector and cannot
+// clobber anything. Only `.name`, `.name:hover`, `.name::before` — the
+// selectors that apply wherever the class is used — compete for the one global
+// name.
+// ---------------------------------------------------------------------------
+
+function sharedSheetFileMap(shared: string, cssA: string, cssB: string, bodyB?: string): FileMap {
+  const page = (cssHref: string, body: string) => `<!doctype html><html><head>
+    <link rel="stylesheet" href="css/shared.css">
+    <link rel="stylesheet" href="${cssHref}">
+  </head><body>${body}</body></html>`
+  const bodyA = '<section id="section-2"><div class="ct-section-inner-wrap">A</div></section>'
+  return {
+    files: {
+      'index.html': { bytes: encoder.encode(page('css/a.css', bodyA)), mimeType: 'text/html' },
+      'original.html': {
+        bytes: encoder.encode(page('css/b.css', bodyB ?? bodyA)),
+        mimeType: 'text/html',
+      },
+      'css/shared.css': { bytes: encoder.encode(shared), mimeType: 'text/css' },
+      'css/a.css': { bytes: encoder.encode(cssA), mimeType: 'text/css' },
+      'css/b.css': { bytes: encoder.encode(cssB), mimeType: 'text/css' },
+    },
+  }
+}
+
+/** Every rule in `rules` whose selector matches `el`, as declaration bags. */
+function matchedStyles(
+  rules: readonly ImportPlan['styleRules'][number][],
+  el: Element,
+): string[] {
+  const matched: string[] = []
+  for (const rule of rules) {
+    if (typeof rule.rawCss === 'string') continue
+    let hit = false
+    try {
+      hit = el.matches(rule.selector)
+    } catch {
+      hit = false
+    }
+    if (hit) matched.push(JSON.stringify(rule.styles))
+  }
+  return matched.sort()
+}
+
+function elementFrom(html: string, selector: string): Element {
+  const doc = document.implementation.createHTMLDocument('t')
+  doc.body.innerHTML = html
+  const el = doc.querySelector(selector)
+  if (!el) throw new Error(`fixture element ${selector} not found`)
+  return el
+}
+
+describe('cross-sheet class conflicts — scoped selectors', () => {
+  it('does not treat an id-scoped rule as part of the class definition', () => {
+    const plan = buildImportPlan({
+      fileMap: sharedSheetFileMap(
+        '.ct-section-inner-wrap { max-width: 1440px; padding-top: 75px; }',
+        '#section-2 > .ct-section-inner-wrap { padding-top: 184px; }',
+        '#section-9 > .ct-section-inner-wrap { padding-top: 60px; }',
+      ),
+      currentSite: makeEmptySiteDocument(),
+    })
+
+    // The bare definition is identical in both cascades, so nothing conflicts.
+    expect(plan.conflicts.crossSheetClasses).toHaveLength(0)
+
+    const resolved = resolveWithDefaults(plan)
+    const selectors = resolved.styleRules.map((rule) => rule.selector)
+    expect(selectors).toContain('#section-2 > .ct-section-inner-wrap')
+    expect(selectors).toContain('#section-9 > .ct-section-inner-wrap')
+
+    // 184px stays on the scoped rule and never leaks onto the bare class.
+    const scoped = resolved.styleRules.find((r) => r.selector === '#section-2 > .ct-section-inner-wrap')
+    expect(scoped?.styles.paddingTop).toBe('184px')
+    const bare = resolved.styleRules.find(
+      (r) => r.kind === 'class' && r.name === 'ct-section-inner-wrap',
+    )
+    expect(bare?.styles.paddingTop).toBe('75px')
+  })
+
+  it('keeps a scoped !important override off the bare class when renaming', () => {
+    const plan = buildImportPlan({
+      fileMap: sharedSheetFileMap(
+        '.cs-entry__title-wrapper { color: #333333; }',
+        '.cs-entry__title-wrapper:hover { color: #eeeeee; }',
+        // The scoped override is the FIRST rule naming the class in this sheet,
+        // so it is the sheet's class-kind rule — exactly the shape that made
+        // the resolver treat it as the class's own definition.
+        '.cnvs-block-posts-1649131008311 .cs-entry__title-wrapper { color: #ffffff !important; }'
+        + ' .cs-entry__title-wrapper:hover { color: #000000; }',
+      ),
+      currentSite: makeEmptySiteDocument(),
+    })
+
+    // The `:hover` definitions really do diverge — that IS a conflict.
+    expect(plan.conflicts.crossSheetClasses).toHaveLength(1)
+    const resolved = resolveWithDefaults(plan)
+
+    const renamed = resolved.styleRules.find(
+      (r) => r.kind === 'class' && r.name === 'cs-entry__title-wrapper-2',
+    )
+    expect(renamed).toBeDefined()
+    expect(renamed?.styles.color).not.toBe('#ffffff')
+
+    // The scoped rule survives, renamed in lockstep.
+    const scoped = resolved.styleRules.find((r) =>
+      r.selector.startsWith('.cnvs-block-posts-1649131008311 '),
+    )
+    expect(scoped?.selector).toBe(
+      '.cnvs-block-posts-1649131008311 .cs-entry__title-wrapper-2',
+    )
+    expect(scoped?.styles.color).toBe('#ffffff')
+  })
+
+  it('rewrites every selector that reaches a renamed page', () => {
+    const bodyB = '<div id="hero" class="wrap"><a class="btn" href="#">Buy</a></div>'
+    const fileMap = sharedSheetFileMap(
+      '.btn { color: #111111; }',
+      '.btn { border-radius: 0; }',
+      '#hero > .btn { padding: 20px 32px; }'
+      + ' .btn:hover { color: red; }'
+      + ' .wrap .btn { margin: 4px; }',
+      bodyB,
+    )
+    const plan = buildImportPlan({ fileMap, currentSite: makeEmptySiteDocument() })
+    expect(plan.conflicts.crossSheetClasses).toHaveLength(1)
+
+    const pageBPaths = new Set(
+      plan.pages.find((p) => p.source === 'original.html')!.linkedCssPaths,
+    )
+    const reachesPageB = plan.styleRules.filter((_, index) =>
+      pageBPaths.has(plan.styleRuleSources[index]),
+    )
+
+    const before = matchedStyles(reachesPageB, elementFrom(bodyB, 'a.btn'))
+    expect(before.length).toBeGreaterThan(0)
+
+    const resolved = resolveWithDefaults(plan)
+    const pageB = resolved.pages.find((p) => p.source === 'original.html')!
+    const tokens = Object.values(pageB.nodeFragment.nodes).flatMap((n) => n.classIds ?? [])
+    expect(tokens).toContain('btn-2')
+
+    // The element as it will be published: same markup, renamed class.
+    const after = matchedStyles(
+      resolved.styleRules,
+      elementFrom(bodyB.replace('class="btn"', 'class="btn-2"'), 'a.btn-2'),
+    )
+
+    // Every declaration bag that reached this element before the rename still
+    // reaches it after. Nothing was dropped, and nothing half-renamed.
+    for (const styles of before) expect(after).toContain(styles)
+  })
+
+  it('falls back to keep-first when a shared sheet scopes the class', () => {
+    const plan = buildImportPlan({
+      fileMap: sharedSheetFileMap(
+        '.btn { color: #111111; } #hero > .btn { padding: 20px 32px; }',
+        '.btn { border-radius: 0; }',
+        '.btn { border-radius: 999px; }',
+        '<div id="hero"><a class="btn" href="#">Buy</a></div>',
+      ),
+      currentSite: makeEmptySiteDocument(),
+    })
+    expect(plan.conflicts.crossSheetClasses).toHaveLength(1)
+
+    const resolved = resolveWithDefaults(plan)
+
+    // `#hero > .btn` lives in the sheet BOTH cascades load, so it cannot follow
+    // the rename without breaking the page that keeps the old name. Renaming
+    // anyway would publish `class="btn-2"` with a rule still asking for `.btn`.
+    expect(resolved.styleRules.some((r) => r.name === 'btn-2')).toBe(false)
+    expect(resolved.styleRules.map((r) => r.selector)).toContain('#hero > .btn')
+
+    const pageB = resolved.pages.find((p) => p.source === 'original.html')!
+    const tokens = Object.values(pageB.nodeFragment.nodes).flatMap((n) => n.classIds ?? [])
+    expect(tokens).toContain('btn')
+    expect(tokens).not.toContain('btn-2')
+  })
+})

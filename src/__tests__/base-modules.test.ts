@@ -1005,6 +1005,7 @@ describe('base.video — render() specifics', () => {
     expect(Object.keys(VideoModule.schema).sort()).toEqual([
       'autoplay',
       'controls',
+      'htmlAttributes',
       'loop',
       'muted',
       'noRelatedVideos',
@@ -1030,6 +1031,33 @@ describe('base.video — render() specifics', () => {
 
   it('is NOT a container (canHaveChildren: false)', () => {
     expect(VideoModule.canHaveChildren).toBe(false)
+  })
+
+  it('renders the imported element id on the <video> it rebuilds', () => {
+    // autumnwooddesigns.com: `#myVideo { position:absolute; object-fit:cover }`
+    // is the only thing making the hero video fill the hero. Publishing the
+    // element without its id left that rule matching nothing.
+    const { html } = renderModule(VideoModule, {
+      videoUrl: 'https://example.com/clip.mp4',
+      autoplay: true,
+      muted: true,
+      loop: true,
+      playsinline: true,
+      controls: false,
+      htmlAttributes: { id: 'myVideo', 'data-role': 'bg' },
+    })
+    expect(html).toContain('<video ')
+    expect(html).toContain('id="myVideo"')
+    expect(html).toContain('data-role="bg"')
+  })
+
+  it('renders the imported element id on a trusted provider iframe', () => {
+    const { html } = renderModule(VideoModule, {
+      videoUrl: 'https://player.vimeo.com/video/917233540',
+      htmlAttributes: { id: 'promo-frame' },
+    })
+    expect(html).toContain('<iframe ')
+    expect(html).toContain('id="promo-frame"')
   })
 
   it('renders a YouTube iframe when videoUrl is a watch URL', () => {

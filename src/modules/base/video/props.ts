@@ -1,4 +1,5 @@
 import { Type, type Static } from '@core/utils/typeboxHelpers'
+import { HtmlAttributesPropSchemaOptions } from '@modules/base/shared/htmlAttributes'
 
 export const VideoPropsSchema = Type.Object({
   videoUrl: Type.String({ default: '' }),
@@ -23,6 +24,12 @@ export const VideoPropsSchema = Type.Object({
   allowFullscreen: Type.Boolean({ default: true }),
   /** When true, appends rel=0 to the YouTube embed URL to suppress related videos. */
   noRelatedVideos: Type.Boolean({ default: false }),
+  /**
+   * Identity attributes the source element carried (`id`, `data-*`, `aria-*`).
+   * Kept verbatim so CSS and scripts that address the element by id keep
+   * matching after the module rebuilds it.
+   */
+  htmlAttributes: Type.Record(Type.String(), Type.String(), HtmlAttributesPropSchemaOptions),
 })
 
 export type VideoStoredProps = Static<typeof VideoPropsSchema>

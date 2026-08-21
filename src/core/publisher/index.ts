@@ -69,6 +69,7 @@ export type { ResponsiveCssOptions } from './responsiveBackground'
 export { collectClassCSS, CssCollector, sanitizeModuleCSS } from './cssCollector'
 export {
   collectScriptClassNameTokens,
+  scriptCanAddClassName,
   collectUsedStyleRuleIds,
   treeShakeStyleRules,
   treeShakeStyleRulesBySignature,

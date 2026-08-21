@@ -39,6 +39,52 @@ export function collectScriptClassNameTokens(
   return tokens
 }
 
+/**
+ * Can the shipped scripts put this class name on an element at runtime?
+ *
+ * The literal case is a name that appears verbatim in a script. The other case
+ * is a name the script ASSEMBLES: jQuery-era plugins keep a prefix and build
+ * their state classes with it, so `unslider-carousel` never appears in
+ * unslider.js — `e._` is `"unslider"`, `e.prefix` is `e._ + "-"`, and the
+ * class arrives as `addClass(e.prefix + "carousel")`. Verbatim matching saw
+ * `unslider-carousel` as a class no node carries and dropped
+ * `.unslider-wrap.unslider-carousel > li`, whose `float` is the only thing
+ * laying the slides out side by side; 890capital published a slider with every
+ * slide stacked and no visible content.
+ *
+ * So a hyphenated name also counts when BOTH halves of one hyphen split are
+ * literals the scripts ship. Requiring both halves keeps this from degenerating
+ * into "any name sharing a word with a script".
+ *
+ * A trailing `-N` is checked against the unsuffixed name too: that is the shape
+ * the importer's cross-sheet auto-rename produces, and a renamed copy of a
+ * runtime class is added by the same script under its original name.
+ *
+ * Erring towards keeping is deliberate and safe in one direction only: a false
+ * positive keeps a rule pure id-tracking would have dropped, and can never drop
+ * one that was needed.
+ */
+export function scriptCanAddClassName(
+  name: string,
+  scriptTokens: ReadonlySet<string>,
+): boolean {
+  if (scriptTokens.has(name)) return true
+  for (let cut = name.indexOf('-'); cut > 0; cut = name.indexOf('-', cut + 1)) {
+    const head = name.slice(0, cut)
+    const tail = name.slice(cut + 1)
+    if (!tail) continue
+    if (
+      (scriptTokens.has(head) || scriptTokens.has(`${head}-`))
+      && (scriptTokens.has(tail) || scriptTokens.has(`-${tail}`))
+    ) {
+      return true
+    }
+  }
+  const renamed = /^(.+)-\d+$/.exec(name)
+  if (renamed && renamed[1] !== name) return scriptCanAddClassName(renamed[1], scriptTokens)
+  return false
+}
+
 /** Collect every registry class id referenced by page and Visual Component nodes. */
 export function collectUsedStyleRuleIds(
   site: Pick<SiteDocument, 'pages' | 'visualComponents'>,
@@ -118,7 +164,7 @@ export function treeShakeStyleRules(
   for (const rule of Object.values(styleRules)) {
     if (rule.kind !== 'class') continue
     knownClassNames.add(rule.name)
-    if (usedIds.has(rule.id) || runtimeClassNames.has(rule.name)) {
+    if (usedIds.has(rule.id) || scriptCanAddClassName(rule.name, runtimeClassNames)) {
       usedClassNames.add(rule.name)
     }
   }
@@ -129,7 +175,7 @@ export function treeShakeStyleRules(
 
     if (rule.kind === 'class') {
       if (
-        (usedIds.has(rule.id) || runtimeClassNames.has(rule.name))
+        usedClassNames.has(rule.name)
         && selectorCanMatch(rule.selector, knownClassNames, usedClassNames)
       ) {
         selected[rule.id] = rule

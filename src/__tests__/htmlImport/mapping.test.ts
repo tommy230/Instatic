@@ -1475,6 +1475,27 @@ describe('base.video — <video> import mapping', () => {
     expect(node.props.controls).toBe(false)
   })
 
+  // A hero video is positioned by the id its theme styles it with —
+  // autumnwooddesigns.com scopes `position:absolute; object-fit:cover` to
+  // `#myVideo`. base.video rebuilds the element from props, so the id and the
+  // class both have to survive the rebuild or every one of those rules stops
+  // matching and the video renders at its intrinsic size inside the hero.
+  it('<video id class> → identity attributes survive the rebuild', () => {
+    const node = single(
+      '<video autoplay muted loop playsinline id="myVideo" class="hero-video" data-role="bg">'
+      + '<source src="clip.mp4" type="video/mp4"></video>',
+    )
+    expect(node.moduleId).toBe('base.video')
+    expect(node.props.htmlAttributes).toMatchObject({ id: 'myVideo', 'data-role': 'bg' })
+    expect(node.classIds).toEqual(['hero-video'])
+  })
+
+  it('<video> does not carry attributes the module regenerates', () => {
+    const node = single('<video id="myVideo" src="clip.mp4" preload="auto" controls muted></video>')
+    const attrs = node.props.htmlAttributes as Record<string, string>
+    expect(attrs).toEqual({ id: 'myVideo' })
+  })
+
   it('<video><source src="..."></video> → videoUrl from first source child', () => {
     const node = single('<video><source src="clip.mp4" type="video/mp4"></video>')
     expect(node.moduleId).toBe('base.video')

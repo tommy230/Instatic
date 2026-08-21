@@ -23,6 +23,18 @@
  * hard isolation keep their stylesheet as a file instead — see
  * `StylesheetImportMode`.)
  *
+ * What counts as a class's DEFINITION is narrow on purpose: only the selectors
+ * that apply wherever the class is used — `.btn`, `.btn:hover`, `.btn::before`.
+ * A selector-scoped rule such as `#hero > .btn` or `.card .btn` is ordinary CSS
+ * that lives in the registry under its own selector; two sheets can hold
+ * different ones without either clobbering the other, so it neither creates a
+ * conflict nor gets merged into one. See `isUnconditionalClassSelector`.
+ *
+ * A rename is all-or-nothing. Every selector reaching the renamed pages moves
+ * with the class, or the rename is abandoned in favour of keep-first — a page
+ * bound to a slightly different definition is recoverable, markup carrying
+ * `btn-2` while its stylesheet still asks for `.btn` is not.
+ *
  * Bootstrap-like scaffold / utility names (`row`, `col-xl-3`, `d-flex`, …)
  * never conflict: their behaviour is intentionally assembled from many small
  * rules across stylesheets, so splitting them by content would break the grid
@@ -38,7 +50,9 @@ import type {
 import type { CssFileResult } from './assetPlan'
 import {
   classKindSelector,
+  extractCssSelectorClasses,
   replaceCssSelectorClassName,
+  splitCssSelectorList,
 } from '@core/page-tree'
 import {
   createCascadedStyleRuleLayers,
@@ -92,6 +106,64 @@ export function isSharedUtilityClassName(name: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Unconditional definition fragments vs. scoped references
+// ---------------------------------------------------------------------------
+
+/**
+ * A trailing run of pseudo-classes / pseudo-elements, the only thing allowed
+ * after the class token in an UNCONDITIONAL selector. A functional pseudo with
+ * nested parentheses (`:not(:is(.a))`) deliberately fails to match: anything
+ * this cannot read confidently is treated as scoped, which only ever costs a
+ * rename that was never needed.
+ */
+const PSEUDO_TAIL_RE = /^(?:::?[A-Za-z][A-Za-z0-9-]*(?:\([^()]*\))?)*$/
+
+/**
+ * Does this selector apply WHEREVER the class is used?
+ *
+ * `.btn`, `.btn:hover`, `.btn::before` do: they carry the class's own
+ * definition, so two stylesheets defining them differently really do fight
+ * over the one global registry name. `#hero > .btn`, `.card .btn`,
+ * `:where(.page-a) .btn` do NOT: they are ordinary selector-scoped CSS that
+ * lives in the registry under its own selector and coexists with every other
+ * scoped rule for the same class without clobbering anything.
+ *
+ * Only the first group is a definition fragment. Treating the second group as
+ * one is what made a re-import both invent conflicts that do not exist and,
+ * on resolving them, flatten a scoped rule's declarations onto the bare class.
+ */
+export function isUnconditionalClassSelector(selector: string, name: string): boolean {
+  const parts = splitCssSelectorList(selector)
+  if (parts.length === 0) return false
+  return parts.every((part) => {
+    const trimmed = part.trim()
+    const tokens = extractCssSelectorClasses(trimmed).filter((token) => token.functionalDepth === 0)
+    const token = tokens[0]
+    if (tokens.length !== 1 || !token || token.name !== name || token.start !== 0) return false
+    return PSEUDO_TAIL_RE.test(trimmed.slice(token.end))
+  })
+}
+
+/** The class-kind rules that make up one class's own definition. */
+function isDefinitionFragment(rule: NewStyleRule, name: string): boolean {
+  if (rule.kind !== 'class' || rule.name !== name) return false
+  if (typeof rule.rawCss === 'string') return false
+  return isUnconditionalClassSelector(rule.selector, name)
+}
+
+/** Does this rule mention the class anywhere a rename would have to follow? */
+function referencesClassName(rule: NewStyleRule, name: string): boolean {
+  if (typeof rule.rawCss === 'string') {
+    return new RegExp(`(^|[^A-Za-z0-9_-])${escapeRegExp(name)}([^A-Za-z0-9_-]|$)`).test(rule.rawCss)
+  }
+  return extractCssSelectorClasses(rule.selector).some((token) => token.name === name)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// ---------------------------------------------------------------------------
 // Cascade model
 // ---------------------------------------------------------------------------
 
@@ -131,6 +203,7 @@ function effectiveClassDefs(
   for (const cssPath of cascade.linkedCssPaths) {
     for (const rule of rulesByCssPath.get(cssPath) ?? []) {
       if (rule.kind !== 'class' || isSharedUtilityClassName(rule.name)) continue
+      if (!isDefinitionFragment(rule, rule.name)) continue
       const def = defs.get(rule.name) ?? createCascadedStyleRuleLayers()
       mergeStyleRuleCascade(def, rule)
       defs.set(rule.name, def)
@@ -193,7 +266,7 @@ export function detectCrossSheetClassConflicts(
           .flatMap((c) => c.linkedCssPaths)
           .filter((cssPath) =>
             !keptCssPaths.has(cssPath)
-            && (rulesByCssPath.get(cssPath) ?? []).some((r) => r.kind === 'class' && r.name === name),
+            && (rulesByCssPath.get(cssPath) ?? []).some((r) => isDefinitionFragment(r, name)),
           ),
       )]
       conflicts.push({
@@ -279,6 +352,30 @@ export function applyCrossSheetClassResolutions(
     const newName = res.resolvedName
     if (!newName || newName === conflict.desiredName) continue
 
+    // A rename is all-or-nothing. If any selector that reaches the affected
+    // pages cannot follow the class to its new name — it lives in a stylesheet
+    // shared with a cascade that keeps the old name, or it is a raw CSS block
+    // this code cannot rewrite — renaming would leave the pages carrying
+    // `name-N` while those rules still ask for `name`, and the CSS silently
+    // stops applying. Keep the first definition instead; a page binding to a
+    // slightly different definition is recoverable, a half-rename is not.
+    if (!canRenameConsistently(
+      { styleRules, styleRuleSources },
+      conflict.desiredName,
+      affectedCascadePaths,
+      exclusivePaths,
+    )) {
+      const removed = removeClassFragments(
+        styleRules,
+        styleRuleSources,
+        conflict.desiredName,
+        (source) => exclusivePaths.has(source),
+      )
+      styleRules = removed.styleRules
+      styleRuleSources = removed.styleRuleSources
+      continue
+    }
+
     const renamed = materialiseRenamedClass(
       { pages, styleRules, styleRuleSources },
       conflict,
@@ -335,30 +432,39 @@ function materialiseRenamedClass(
   )
   let styleRules = removed.styleRules
   const styleRuleSources = removed.styleRuleSources
-  if (merged) {
-    styleRules.push({
-      kind: 'class',
-      name: newName,
-      selector: classKindSelector(newName),
-      order: 0,
-      styles: merged.styles as NewStyleRule['styles'],
-      ...(sparsePriorities(merged.stylePriorities)
-        ? { stylePriorities: merged.stylePriorities }
-        : {}),
-      contextStyles: merged.contextStyles as NewStyleRule['contextStyles'],
-      ...(sparseContextPriorities(merged.contextStylePriorities)
-        ? { contextStylePriorities: sparseContextPriorities(merged.contextStylePriorities) }
-        : {}),
-    })
-    styleRuleSources.push(conflict.sources[0] ?? affectedCascadePaths[0] ?? '')
-  }
+  // Always materialise the bindable rule, even when the affected cascade owns
+  // no unconditional fragment: the renamed nodes need a registry entry to bind
+  // to, exactly like the bare entries `addSelectorDependencyClasses` adds.
+  const definition = merged ?? createCascadedStyleRuleLayers()
+  styleRules.push({
+    kind: 'class',
+    name: newName,
+    selector: classKindSelector(newName),
+    order: 0,
+    styles: definition.styles as NewStyleRule['styles'],
+    ...(sparsePriorities(definition.stylePriorities)
+      ? { stylePriorities: definition.stylePriorities }
+      : {}),
+    contextStyles: definition.contextStyles as NewStyleRule['contextStyles'],
+    ...(sparseContextPriorities(definition.contextStylePriorities)
+      ? { contextStylePriorities: sparseContextPriorities(definition.contextStylePriorities) }
+      : {}),
+  })
+  styleRuleSources.push(conflict.sources[0] ?? affectedCascadePaths[0] ?? '')
 
   const renames = new Map([[conflict.desiredName, newName]])
   styleRules = styleRules.map((rule, index) => {
-    if (rule.kind !== 'ambient' || typeof rule.rawCss === 'string') return rule
+    if (typeof rule.rawCss === 'string') return rule
     if (!exclusivePaths.has(styleRuleSources[index])) return rule
     const selector = rewriteSelectorClassTokens(rule.selector, renames)
     if (selector === rule.selector) return rule
+    // A scoped class-kind rule (`#hero > .btn`) is not the class's definition —
+    // the materialised bare rule above is. Its CSS keeps its cascade position
+    // as an ambient fragment, so exactly one rule stays bindable under the new
+    // name and none of its declarations leak onto the bare class.
+    if (rule.kind === 'class') {
+      return { ...rule, kind: 'ambient' as const, name: selector, selector }
+    }
     return { ...rule, selector, name: rule.name === rule.selector ? selector : rule.name }
   })
 
@@ -378,17 +484,37 @@ function materialiseRenamedClass(
  * declarations. Run AFTER all renames so it sees final names.
  */
 export function normalizeBindableClassRules(plan: ImportPlan): ImportPlan {
-  const seen = new Set<string>()
+  const styleRules = [...plan.styleRules]
+  const primaryIndexByName = new Map<string, number>()
   let changed = false
-  const styleRules = plan.styleRules.map((rule) => {
-    if (rule.kind !== 'class') return rule
-    if (!seen.has(rule.name)) {
-      seen.add(rule.name)
-      return rule
-    }
+  const demote = (index: number): void => {
+    const rule = styleRules[index]
     changed = true
-    return { ...rule, kind: 'ambient' as const, name: rule.selector }
-  })
+    styleRules[index] = { ...rule, kind: 'ambient' as const, name: rule.selector }
+  }
+  for (let index = 0; index < styleRules.length; index += 1) {
+    const rule = styleRules[index]
+    if (rule.kind !== 'class') continue
+    const primaryIndex = primaryIndexByName.get(rule.name)
+    if (primaryIndex === undefined) {
+      primaryIndexByName.set(rule.name, index)
+      continue
+    }
+    // Prefer the canonical bare selector as the bindable rule, mirroring the
+    // per-file choice `normalizeParsedBindableClassRules` already makes. A
+    // scoped rule that happens to come first must not claim the name and leave
+    // the class's own definition demoted to ambient CSS.
+    const canonicalSelector = classKindSelector(rule.name)
+    if (
+      rule.selector === canonicalSelector
+      && styleRules[primaryIndex].selector !== canonicalSelector
+    ) {
+      demote(primaryIndex)
+      primaryIndexByName.set(rule.name, index)
+      continue
+    }
+    demote(index)
+  }
   return changed ? { ...plan, styleRules } : plan
 }
 
@@ -411,6 +537,34 @@ function orderedCascadePaths(pages: readonly PagePlan[], affectedPages: Readonly
   return ordered
 }
 
+/**
+ * Can every rule the affected pages see follow this class to a new name?
+ *
+ * Definition fragments are replaced wholesale by the materialised rule, so
+ * they never block. Everything else that names the class must be rewritable in
+ * place: it has to live in a stylesheet exclusive to the affected cascade
+ * (rewriting a shared sheet would break the pages that keep the old name) and
+ * it must be a selector this code can rewrite, not an opaque raw CSS block.
+ */
+function canRenameConsistently(
+  state: Pick<CascadeRuleState, 'styleRules' | 'styleRuleSources'>,
+  name: string,
+  affectedCascadePaths: readonly string[],
+  exclusivePaths: ReadonlySet<string>,
+): boolean {
+  const affectedPathSet = new Set(affectedCascadePaths)
+  for (let i = 0; i < state.styleRules.length; i++) {
+    const rule = state.styleRules[i]
+    const source = state.styleRuleSources[i]
+    if (!affectedPathSet.has(source)) continue
+    if (isDefinitionFragment(rule, name)) continue
+    if (!referencesClassName(rule, name)) continue
+    if (typeof rule.rawCss === 'string') return false
+    if (!exclusivePaths.has(source)) return false
+  }
+  return true
+}
+
 function removeClassFragments(
   styleRules: NewStyleRule[],
   styleRuleSources: string[],
@@ -421,7 +575,7 @@ function removeClassFragments(
   const keptSources: string[] = []
   for (let i = 0; i < styleRules.length; i++) {
     const rule = styleRules[i]
-    if (rule.kind === 'class' && rule.name === name && sourceMatches(styleRuleSources[i])) continue
+    if (isDefinitionFragment(rule, name) && sourceMatches(styleRuleSources[i])) continue
     keptRules.push(rule)
     keptSources.push(styleRuleSources[i])
   }
@@ -437,7 +591,7 @@ function mergeClassDefinition(
   const indexBySource = new Map<string, number[]>()
   for (let i = 0; i < styleRules.length; i++) {
     const rule = styleRules[i]
-    if (rule.kind !== 'class' || rule.name !== name) continue
+    if (!isDefinitionFragment(rule, name)) continue
     const list = indexBySource.get(styleRuleSources[i]) ?? []
     list.push(i)
     indexBySource.set(styleRuleSources[i], list)

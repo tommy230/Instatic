@@ -118,6 +118,13 @@ const HTML_ATTRIBUTE_MODULES = new Set([
   // `<form>` did not keep: it went into `data-instatic-form-id` and the real
   // attribute was never emitted, so every rule keyed on it stopped matching.
   'base.form',
+  // A hero video is positioned by the id or class the theme styles it with —
+  // `#myVideo { position:absolute; object-fit:cover }` on
+  // autumnwooddesigns.com. base.video rebuilds the element from props, so the
+  // source's own identity attributes were dropped and every one of those rules
+  // stopped matching: the hero video rendered at its intrinsic size instead of
+  // filling the hero.
+  'base.video',
 ])
 
 const MODULE_GENERATED_ATTRIBUTE_NAMES: Record<string, readonly string[]> = {
@@ -168,6 +175,27 @@ const MODULE_GENERATED_ATTRIBUTE_NAMES: Record<string, readonly string[]> = {
   // `value` becomes the label and `type` is what the module always emits;
   // everything else (id, class, data-*) is the source's own identity.
   'base.submit': ['type', 'value'],
+  // Everything base.video regenerates from its own props — playback flags, the
+  // resolved source and poster, intrinsic dimensions, and the provider-iframe
+  // plumbing. What is left is the element's own identity (id, data-*, aria-*).
+  'base.video': [
+    'allow',
+    'allowfullscreen',
+    'autoplay',
+    'controls',
+    'frameborder',
+    'height',
+    'loading',
+    'loop',
+    'muted',
+    'playsinline',
+    'poster',
+    'preload',
+    'referrerpolicy',
+    'src',
+    'title',
+    'width',
+  ],
 }
 
 /**

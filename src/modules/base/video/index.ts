@@ -31,6 +31,7 @@ import { VideoSolidIcon } from 'pixel-art-icons/icons/video-solid'
 import { safeUrl } from '@modules/base/utils/escape'
 import { trustedVideoEmbed } from '@core/media/trustedVideoEmbed'
 import { buildMediaSrcset, pickMediaVariantUrl } from '@modules/base/utils/mediaAttrs'
+import { htmlAttributesAttr, htmlAttributesControl } from '@modules/base/shared/htmlAttributes'
 import { VideoEditor } from './VideoEditor'
 import { parseYoutubeId, youtubeEmbedUrl } from './youtube'
 import { VideoPropsSchema, type VideoStoredProps } from './props'
@@ -94,6 +95,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     },
     title: { type: 'text', label: 'Video title', description: 'Accessibility label for an embedded player iframe.' },
     noRelatedVideos: { type: 'toggle', label: 'Hide related videos', description: 'Adds rel=0 to suppress YouTube recommended videos after playback.' },
+    htmlAttributes: htmlAttributesControl(),
   },
 
   // Single source of truth: defaults are derived from the schema's `default`
@@ -117,10 +119,15 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
   render: (props) => {
     const rawUrl = String(props.videoUrl ?? '')
     const youtubeId = parseYoutubeId(rawUrl)
+    // The source element's own identity (`id`, `data-*`, `aria-*`). It goes on
+    // whatever element ends up being this node's root, because that is what the
+    // page's CSS and scripts addressed.
+    const identityAttrs = htmlAttributesAttr(props.htmlAttributes)
 
     if (youtubeId) {
       return renderYoutube({
         youtubeId,
+        identityAttrs,
         autoplay: Boolean(props.autoplay),
         noRelatedVideos: Boolean(props.noRelatedVideos),
         title: String(props.title || 'YouTube video'),
@@ -132,6 +139,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     const trustedEmbed = trustedVideoEmbed(rawUrl)
     if (trustedEmbed) {
       return renderTrustedVideoEmbed({
+        identityAttrs,
         src: trustedEmbed.src,
         frameOrigins: trustedEmbed.frameOrigins,
         title: String(props.title || 'Video'),
@@ -144,7 +152,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     }
 
     const videoSrc = safeUrl(rawUrl)
-    if (!videoSrc) return { html: '<video></video>' }
+    if (!videoSrc) return { html: `<video${identityAttrs}></video>` }
 
     // Resolved video asset gives us intrinsic dimensions — emits
     // `width` / `height` attrs so the browser reserves layout space
@@ -176,7 +184,7 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     if (props.muted) attrs.push('muted')
     if (props.controls) attrs.push('controls')
 
-    return { html: `<video ${attrs.join(' ')}></video>` }
+    return { html: `<video ${attrs.join(' ')}${identityAttrs}></video>` }
   },
 }
 
@@ -192,6 +200,8 @@ const REFERRER_POLICIES = new Set([
 ])
 
 function renderTrustedVideoEmbed(input: {
+  /** Pre-serialised identity attributes, already leading-space separated. */
+  identityAttrs: string
   src: string
   frameOrigins: string[]
   title: string
@@ -214,7 +224,7 @@ function renderTrustedVideoEmbed(input: {
   if (input.allowFullscreen) attrs.push('allowfullscreen')
 
   return {
-    html: `<iframe ${attrs.join(' ')}></iframe>`,
+    html: `<iframe ${attrs.join(' ')}${input.identityAttrs}></iframe>`,
     cspSources: [{ directive: 'frame-src', sources: input.frameOrigins }],
   }
 }
@@ -224,6 +234,8 @@ function renderTrustedVideoEmbed(input: {
 // ---------------------------------------------------------------------------
 
 interface YoutubeRenderInput {
+  /** Pre-serialised identity attributes, already leading-space separated. */
+  identityAttrs: string
   youtubeId: string
   autoplay: boolean
   noRelatedVideos: boolean
@@ -274,10 +286,12 @@ function renderYoutube(input: YoutubeRenderInput): RenderOutput {
     `allow="autoplay; encrypted-media; fullscreen"`,
     `allowfullscreen`,
   ]
-  const iframeHtml = `<iframe ${iframeAttrs.join(' ')}></iframe>`
+  // Without a poster the iframe IS the root, so it carries the identity; with
+  // one the wrapper `<div>` is the root and carries it instead.
+  const rootIframeHtml = `<iframe ${iframeAttrs.join(' ')}${input.identityAttrs}></iframe>`
 
   if (!input.posterUrl && !input.posterMedia) {
-    return { html: iframeHtml, cspSources: YOUTUBE_CSP_SOURCES }
+    return { html: rootIframeHtml, cspSources: YOUTUBE_CSP_SOURCES }
   }
 
   // Poster aspect target — derives the variant pick. YouTube embeds are
@@ -290,7 +304,7 @@ function renderYoutube(input: YoutubeRenderInput): RenderOutput {
   if (!posterSrc) {
     // Poster prop set but URL didn't survive safeUrl — fall back to
     // bare iframe rather than emitting an `<img src>` we can't trust.
-    return { html: iframeHtml, cspSources: YOUTUBE_CSP_SOURCES }
+    return { html: rootIframeHtml, cspSources: YOUTUBE_CSP_SOURCES }
   }
 
   const posterSrcset = input.posterMedia ? buildMediaSrcset(input.posterMedia) : null
@@ -312,7 +326,7 @@ function renderYoutube(input: YoutubeRenderInput): RenderOutput {
   if (posterHeight !== null) imgAttrs.push(`height="${posterHeight}"`)
 
   const html =
-    `<div class="bv-yt">`
+    `<div class="bv-yt"${input.identityAttrs}>`
     + `<img ${imgAttrs.join(' ')}>`
     + `<iframe class="bv-yt-frame" ${iframeAttrs.join(' ')}></iframe>`
     + `</div>`
