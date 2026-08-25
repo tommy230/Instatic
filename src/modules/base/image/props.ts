@@ -13,6 +13,12 @@ export const ImagePropsSchema = Type.Object({
     { default: 'async' },
   ),
   htmlAttributes: Type.Record(Type.String(), Type.String(), HtmlAttributesPropSchemaOptions),
+  // Set by the HTML import and by nothing else (no editor control). Marks a
+  // node whose <img> markup was authored by a source page, so the renderer
+  // emits only the attributes that page declared instead of fabricating
+  // srcset/sizes/width/height/loading/decoding from the library asset — the
+  // source site's CSS was written against the markup it shipped.
+  sourceAuthored: Type.Optional(Type.Boolean()),
 })
 
 export type ImageStoredProps = Static<typeof ImagePropsSchema>

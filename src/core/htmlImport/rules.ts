@@ -486,13 +486,13 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
     }),
   },
 
-  // Images. `src` only — alt text is sourced from the media library asset,
-  // not stored as a per-instance prop. LEAF.
+  // Images. LEAF. `sourceAuthored` stops the renderer fabricating attributes
+  // the page never declared (rationale in base/image/props.ts).
   {
     match: 'img',
     map: (el) => ({
       moduleId: 'base.image',
-      props: { src: el.getAttribute('src') ?? '' },
+      props: { src: el.getAttribute('src') ?? '', sourceAuthored: true },
     }),
   },
 

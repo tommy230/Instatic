@@ -182,6 +182,12 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
     // attributes survive the import as `htmlAttributes`.
     const authored = props.htmlAttributes ?? {}
     const sourceHas = (name: string) => Object.hasOwn(authored, name)
+    // The HTML import stamps this on every <img> it maps. Such a page's CSS
+    // was written against exactly the markup the source shipped, so an
+    // attribute the source did not declare must not be fabricated from the
+    // library asset: a width="256" added to an icon the source sized with
+    // height-only CSS publishes at 256×31 (300southtryon.com share icons).
+    const sourceAuthored = props.sourceAuthored === true
     // `alt` is resolved below and emitted once, from whichever source wins, so
     // it is held out of the generic passthrough rather than written twice.
     const { alt: authoredAltRaw, ...authoredOtherAttrs } = authored
@@ -233,10 +239,10 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
     // Build the attribute string. Each attribute is conditionally appended
     // so the output is clean (no `width="null"` or empty `srcset=""`).
     const attrs: string[] = [`src="${src}"`, `alt="${alt}"`]
-    if (srcset && !sourceHas('srcset')) attrs.push(`srcset="${srcset}"`)
-    if (sizes && !sourceHas('sizes')) attrs.push(`sizes="${sizes}"`)
-    if (width !== null && !sourceHas('width')) attrs.push(`width="${width}"`)
-    if (height !== null && !sourceHas('height')) attrs.push(`height="${height}"`)
+    if (srcset && !sourceHas('srcset') && !sourceAuthored) attrs.push(`srcset="${srcset}"`)
+    if (sizes && !sourceHas('sizes') && !sourceAuthored) attrs.push(`sizes="${sizes}"`)
+    if (width !== null && !sourceHas('width') && !sourceAuthored) attrs.push(`width="${width}"`)
+    if (height !== null && !sourceHas('height') && !sourceAuthored) attrs.push(`height="${height}"`)
     // Perf hints stay the default for images the editor placed, and are never
     // forced onto one carried over from a source page that did not ask for
     // them. Lazy-loading an image the source loaded eagerly can stop it loading
@@ -252,10 +258,10 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
     // the source never had. The editor's `src` control is a media picker, so an
     // image with no resolvable asset did not come from the editor.
     const importedWithoutAsset = !media
-    if (!sourceHas('loading') && !importedWithoutAsset) {
+    if (!sourceHas('loading') && !importedWithoutAsset && !sourceAuthored) {
       attrs.push(`loading="${loading}"`)
     }
-    if (!sourceHas('decoding') && !importedWithoutAsset) {
+    if (!sourceHas('decoding') && !importedWithoutAsset && !sourceAuthored) {
       attrs.push(`decoding="${decoding}"`)
     }
     if (fetchPriority !== 'auto' && !sourceHas('fetchpriority')) {
@@ -266,7 +272,10 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
     // loading="eager" — those are above-the-fold images where the user
     // wants the real pixels ASAP, and the blur-then-flash effect is more
     // distracting than helpful at the top of the page.
-    if (blurBg && loading === 'lazy') {
+    // A source-authored image is skipped too: the blur is Instatic decoration
+    // the source page never shipped, and its inline style would fight the
+    // source CSS the same way a fabricated width does.
+    if (blurBg && loading === 'lazy' && !sourceAuthored) {
       attrs.push(`style="background-image:${blurBg};background-size:cover;background-position:center"`)
     }
 

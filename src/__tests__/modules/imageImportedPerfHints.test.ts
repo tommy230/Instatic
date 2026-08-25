@@ -132,6 +132,59 @@ describe('base.image — imported images keep the source hints', () => {
   })
 })
 
+describe('base.image — source-authored images with a library asset', () => {
+  // The keeper imports ingest every image into the media library, so the
+  // no-asset guard above never fires for them and the renderer fabricated
+  // srcset/sizes/width/height/loading/decoding from the asset. On
+  // 300southtryon.com the source sized a 256×256 instagram.png purely with
+  // height CSS; the fabricated width="256" won over the height-only rule and
+  // published the icon stretched to 256×31. The import stamps
+  // `sourceAuthored` so the renderer emits only what the source declared.
+  it('fabricates nothing the source page did not declare', () => {
+    const html = render({
+      src: '/uploads/instagram.png',
+      sourceAuthored: true,
+      _resolvedMediaByKey: {
+        src: { ...libraryMedia(), publicPath: '/uploads/instagram.png', width: 256, height: 256 },
+      },
+    })
+
+    expect(html).toContain('src="/uploads/instagram.png"')
+    expect(html).not.toContain('width=')
+    expect(html).not.toContain('height=')
+    expect(html).not.toContain('srcset=')
+    expect(html).not.toContain('sizes=')
+    expect(html).not.toContain('loading=')
+    expect(html).not.toContain('decoding=')
+  })
+
+  it('keeps every attribute the source page declared', () => {
+    const html = render({
+      src: '/uploads/hero.png',
+      sourceAuthored: true,
+      htmlAttributes: { width: '640', height: '480', loading: 'lazy' },
+      _resolvedMediaByKey: { src: libraryMedia() },
+    })
+
+    expect(html).toContain('width="640"')
+    expect(html).toContain('height="480"')
+    expect(html).toContain('loading="lazy"')
+    expect(html.match(/width=/g)).toHaveLength(1)
+  })
+
+  it('leaves editor-placed library images untouched', () => {
+    const html = render({
+      src: '/uploads/hero.png',
+      loading: 'lazy',
+      _resolvedMediaByKey: { src: libraryMedia() },
+    })
+
+    expect(html).toContain('width="1200"')
+    expect(html).toContain('height="800"')
+    expect(html).toContain('loading="lazy"')
+  })
+})
+
 describe('base.image — data: image placeholders', () => {
   // WordPress lazy-loaders ship an inline SVG of the right aspect ratio as the
   // placeholder `src` and the real URL in `data-lazy-src`. `safeUrl` refuses
