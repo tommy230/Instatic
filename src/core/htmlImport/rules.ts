@@ -19,6 +19,12 @@
  */
 
 import { normalizeImportedText } from './text'
+import {
+  hasStructuralChild,
+  inlineIconMarkup,
+  isSubmitButton,
+  submitLabel,
+} from './buttonContent'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
 import { isTrustedVideoIframeSrc } from './trustedVideoIframe'
 
@@ -42,36 +48,6 @@ export interface ImportRule {
 /** True when the element has at least one element (non-text) child. */
 function hasElementChild(el: Element): boolean {
   return el.children.length > 0
-}
-
-/**
- * Markup of the first inline `<svg>` inside `el`, or '' when there is none.
- *
- * base.button is a LEAF module: it maps `<button>` to a `label` string and
- * recurses into nothing. Real consent bars, search fields and CTAs put a small
- * `<svg stroke="currentColor">` inside the button, and that subtree used to be
- * discarded outright — the gear icon on the consent widget's Customize button
- * disappeared on every imported site. The markup is captured verbatim here and
- * lands on the module's `svg`-typed `icon` prop, which sanitises it at the
- * publisher boundary (`escapeProps` → `sanitizeSvg`, the DOMPurify SVG
- * profile) exactly like base.svg's own prop.
- */
-function inlineIconMarkup(el: Element): string {
-  const svg = el.querySelector('svg')
-  return svg ? svg.outerHTML : ''
-}
-
-/**
- * Whether an element's children are STRUCTURE rather than a label and an icon.
- *
- * The leaf mapping carries exactly two things across: the element's text, and
- * one inline `<svg>` on the `icon` prop. That is all of
- * `<button><svg/>Customize</button>`, so an svg-only button stays a leaf.
- * Anything else is a layout the author built, and flattening it deletes every
- * element and class inside except the first svg — see the button rule below.
- */
-function hasStructuralChild(el: Element): boolean {
-  return Array.from(el.children).some((child) => child.tagName.toLowerCase() !== 'svg')
 }
 
 /**
@@ -185,11 +161,6 @@ function normalizeInputType(el: Element): typeof TEXT_INPUT_TYPES[number] {
 function normalizeFormMethod(el: Element): 'get' | 'post' | 'dialog' {
   const method = normalizedAttr(el, 'method') || 'get'
   return method === 'post' || method === 'dialog' ? method : 'get'
-}
-
-function submitLabel(el: Element): string {
-  const label = attr(el, 'value') || normalizeImportedText(el.textContent ?? '')
-  return label || 'Submit'
 }
 
 function mapLoopProps(el: Element): Record<string, unknown> {
@@ -507,11 +478,21 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
   // Flattened to a leaf, the 32px icon wrapper went with it and the
   // `width:100%` svg had the 1264px flex row to fill instead — eight ~1000px
   // plus signs down the page, 15607px published against 8505px live.
+  //
+  // A SUBMIT button with element children recurses so the children survive as
+  // real nodes — base.submit renders children when it has them, `label` when
+  // it doesn't, the base.link contract. Icon-only submits are the measured
+  // case (fleet sweep 2026-08-25): 890capital's newsletter arrow (`<svg>`),
+  // botanicanc's and rootedpasture1's search magnifiers (icon-font `<i>`),
+  // rebic's `<img src="…/btn-img.svg">`. Flattened to a `label` leaf, every
+  // one of them published as the literal word "Submit". `hasElementChild`
+  // (not `hasStructuralChild`) because for a submit even a lone svg must
+  // survive as a child: base.submit has no `icon` prop to catch it.
   {
     match: 'button',
     map: (el) => {
       const type = normalizedAttr(el, 'type')
-      if (type === 'submit' || (!type && el.closest('form'))) {
+      if (isSubmitButton(el)) {
         return {
           moduleId: 'base.submit',
           props: {
@@ -537,7 +518,7 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
         },
       }
     },
-    recurse: (el) => hasStructuralChild(el),
+    recurse: (el) => (isSubmitButton(el) ? hasElementChild(el) : hasStructuralChild(el)),
   },
 
   // A text-only list item is a semantic text leaf so the editor can attach

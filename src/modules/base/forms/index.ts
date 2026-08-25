@@ -10,6 +10,7 @@ import { Type, Value, type Static } from '@core/utils/typeboxHelpers'
 import { normalizeIdentifierValue } from '@core/utils/identifier'
 import { safeUrl } from '@modules/base/utils/escape'
 import { FORM_RUNTIME_JS } from './formRuntimeJs'
+import { submitUsesChildren } from './content'
 import { FileTextSolidIcon } from 'pixel-art-icons/icons/file-text-solid'
 import { TextStartTIcon } from 'pixel-art-icons/icons/text-start-t'
 import { CheckboxSolidIcon } from 'pixel-art-icons/icons/checkbox-solid'
@@ -453,9 +454,12 @@ export const SubmitModule: ModuleDefinition<SubmitProps> = {
   version: '1.0.0',
   icon: SendSolidIcon,
   trusted: true,
-  canHaveChildren: false,
+  // Children carry imported icon-only submit content (an inline `<svg>`
+  // arrow, an icon-font `<i>`, an `<img>`) as real nodes; the `label` prop is
+  // the childless fallback. Same children-vs-text contract as base.link.
+  canHaveChildren: true,
   schema: {
-    label: { type: 'text', label: 'Label' },
+    label: { type: 'text', label: 'Label', placeholder: 'Displayed when no children' },
     disabled: { type: 'toggle', label: 'Disabled' },
     formId: { type: 'text', label: 'Form ID override', normalize: 'identifier' },
     htmlAttributes: htmlAttributesControl(),
@@ -464,11 +468,16 @@ export const SubmitModule: ModuleDefinition<SubmitProps> = {
   defaults: Value.Create(SubmitPropsSchema),
   component: SubmitEditor,
   htmlTag: 'button',
-  render: (props) => ({
-    // Source attributes first, matching base.button: they carry the id and
-    // class a theme's selectors are written against.
-    html: `<button${htmlAttributesAttr(props.htmlAttributes)} type="submit"${attrs([['form', normalizeIdentifierValue(props.formId)]])}${booleanAttrs(props, ['disabled'])}>${props.label}</button>`,
-  }),
+  render: (props, renderedChildren) => {
+    const content = submitUsesChildren(renderedChildren?.length ?? 0)
+      ? renderedChildren.join('')
+      : String(props.label ?? '')
+    return {
+      // Source attributes first, matching base.button: they carry the id and
+      // class a theme's selectors are written against.
+      html: `<button${htmlAttributesAttr(props.htmlAttributes)} type="submit"${attrs([['form', normalizeIdentifierValue(props.formId)]])}${booleanAttrs(props, ['disabled'])}>${content}</button>`,
+    }
+  },
 }
 
 export const FormMessageModule: ModuleDefinition<FormMessageProps> = {
