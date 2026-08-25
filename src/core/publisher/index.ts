@@ -43,6 +43,8 @@ export type { PageCspRequirement } from './cspDerivation'
 
 export { escapeHtml, isSafeUrl, isSafeImageUrl, safeImageUrl, safeUrl, sanitiseCssValue } from './utils'
 
+export { injectNodeInlineStyles, injectNodeClassIds } from './classInjection'
+
 export {
   bagToCSS,
   bagToInlineStyle,
