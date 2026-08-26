@@ -73,9 +73,32 @@ type ImageProps = ImageStoredProps & {
  * only allows `auto` on `loading="lazy"`, so eager images emit the
  * fallback alone.
  */
-function resolveSizes(autoResolved: string | undefined, lazy: boolean): string {
+function resolveSizes(autoResolved: string | undefined, auto: boolean): string {
   const fallback = autoResolved ?? '100vw'
-  return lazy ? `auto, ${fallback}` : fallback
+  return auto ? `auto, ${fallback}` : fallback
+}
+
+/**
+ * `sizes=auto` switches the browser to size containment: the layout box is
+ * computed from the width/height attributes alone, and the downloaded file's
+ * natural aspect ratio is ignored. That turns authored `width`/`height`
+ * attributes from a hint the site's CSS may override into the authoritative
+ * ratio, which is wrong when they contradict the real file (an 800x160 logo
+ * authored as `width="245" height="20"` paints squashed into 245x20 even under
+ * `img { height: auto }`). For such images the `auto` keyword is withheld so
+ * the natural ratio governs again. Tolerance is +-1px on the rounded height,
+ * so legitimately rounded dimensions never trip it.
+ */
+function authoredDimsContradictAsset(
+  authored: Record<string, unknown>,
+  media: RenderResolvedMedia | undefined,
+): boolean {
+  if (!media?.width || !media?.height) return false
+  const w = Number(authored['width'])
+  const h = Number(authored['height'])
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return false
+  const expected = Math.round((w * media.height) / media.width)
+  return Math.abs(h - expected) > 1
 }
 
 /**
@@ -175,7 +198,8 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
   render: (props) => {
     const src = safeUrl(props.src)
     if (!src) return { html: '' }
-    const htmlAttrs = htmlAttributesAttr(props.htmlAttributes)
+    const authored = props.htmlAttributes ?? {}
+    const htmlAttrs = htmlAttributesAttr(authored)
 
     // Alt text comes exclusively from the library asset — the library is
     // the single source of truth for accessibility metadata. Edited in
@@ -199,7 +223,10 @@ export const ImageModule: ModuleDefinition<ImageProps> = {
     // attribute-safe string (numbers, media-query keywords, CSS math
     // functions), so no further escape is needed.
     const sizes = srcset
-      ? resolveSizes(props._resolvedAutoSizes, loading === 'lazy')
+      ? resolveSizes(
+        props._resolvedAutoSizes,
+        loading === 'lazy' && !authoredDimsContradictAsset(authored, media),
+      )
       : null
     const width = media?.width ?? null
     const height = media?.height ?? null

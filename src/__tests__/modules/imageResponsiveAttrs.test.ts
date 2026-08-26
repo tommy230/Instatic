@@ -66,6 +66,38 @@ describe('base.image sizes resolution', () => {
     expect(sizesAttr(html)).toBe('min(100vw, 1280px)')
   })
 
+  // `sizes=auto` makes the browser trust the width/height attributes as the
+  // layout ratio (size containment ignores the file's natural ratio). When
+  // authored dimensions contradict the real asset, the `auto` keyword must be
+  // withheld or the image paints squashed into the wrong ratio.
+  it('lazy withholds `auto` when authored width/height contradict the asset ratio', () => {
+    const html = renderImage({
+      loading: 'lazy',
+      _resolvedAutoSizes: 'min(100vw, 1100px)',
+      htmlAttributes: { width: '500', height: '100' },
+    })
+    expect(sizesAttr(html)).toBe('min(100vw, 1100px)')
+  })
+
+  it('lazy keeps `auto` when authored width/height match the asset ratio (1px rounding tolerance)', () => {
+    // 500 × 1520 / 2688 = 282.7 → rounds to 283; 284 is within the ±1 tolerance.
+    const html = renderImage({
+      loading: 'lazy',
+      _resolvedAutoSizes: 'min(100vw, 1100px)',
+      htmlAttributes: { width: '500', height: '284' },
+    })
+    expect(sizesAttr(html)).toBe('auto, min(100vw, 1100px)')
+  })
+
+  it('lazy keeps `auto` when the source authored no dimensions', () => {
+    const html = renderImage({
+      loading: 'lazy',
+      _resolvedAutoSizes: 'min(100vw, 1100px)',
+      htmlAttributes: { class: 'alignleft' },
+    })
+    expect(sizesAttr(html)).toBe('auto, min(100vw, 1100px)')
+  })
+
   it('srcset never contains the original file', () => {
     const html = renderImage({ loading: 'lazy' })
     const m = html.match(/srcset="([^"]*)"/)
