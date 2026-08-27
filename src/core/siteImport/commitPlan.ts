@@ -151,11 +151,26 @@ async function uploadPlanAssets(
       rewriteMap[asset.sourcePath] = newUrl
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Unknown upload error'
-      warnings.push({
-        kind: 'asset-upload-failed',
-        message: `Failed to upload ${asset.sourcePath} (${asset.mimeType}): ${reason}`,
-        path: asset.sourcePath,
-      })
+      // A passthrough-backed asset already ships with the published site: the
+      // publisher copies the passthrough tree verbatim into the store root, so
+      // the file is reachable at the key minus its `passthrough/` prefix.
+      // Rewriting to that root-relative URL keeps the page working (a 59 MB
+      // hero video over the 50 MB media cap must not become a 404); leaving
+      // the raw FileMap key would publish a URL that resolves nowhere.
+      if (asset.sourcePath.startsWith('passthrough/')) {
+        rewriteMap[asset.sourcePath] = `/${asset.sourcePath.slice('passthrough/'.length)}`
+        warnings.push({
+          kind: 'asset-upload-failed',
+          message: `Failed to upload ${asset.sourcePath} (${asset.mimeType}): ${reason}. Serving the passthrough copy at ${rewriteMap[asset.sourcePath]} instead; the file is not in the media library.`,
+          path: asset.sourcePath,
+        })
+      } else {
+        warnings.push({
+          kind: 'asset-upload-failed',
+          message: `Failed to upload ${asset.sourcePath} (${asset.mimeType}): ${reason}`,
+          path: asset.sourcePath,
+        })
+      }
     }
   }
   return { rewriteMap, warnings }
