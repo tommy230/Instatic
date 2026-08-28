@@ -166,7 +166,7 @@ describe('responsiveBackgroundReactStyle', () => {
 
     expect(style?.color).toBe('red')
     expect(style?.backgroundImage).toContain('linear-gradient(red, blue), image-set(')
-    expect(style?.backgroundImage).toContain('url("/uploads/hero-w1024.webp") 1x')
+    expect(style?.backgroundImage).toContain('url("/uploads/hero-w1024.webp") 0.43x')
     expect(style?.backgroundImage).not.toContain('/uploads/hero.png')
   })
 })

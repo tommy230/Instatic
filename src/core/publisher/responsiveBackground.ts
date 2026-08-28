@@ -19,8 +19,8 @@ function cssUrl(url: string): string {
   return `url(${JSON.stringify(url)})`
 }
 
-function formatResolution(width: number): string {
-  return `${parseFloat((width / BACKGROUND_IMAGE_SET_REFERENCE_WIDTH).toFixed(2))}x`
+function formatResolution(width: number, referenceWidth: number): string {
+  return `${parseFloat((width / referenceWidth).toFixed(2))}x`
 }
 
 function sortedVariants(media: RenderResolvedMedia): RenderResolvedMedia['variants'] {
@@ -36,11 +36,22 @@ function buildImageSet(media: RenderResolvedMedia): string | null {
   const variants = sortedVariants(media)
   if (variants.length === 0) return null
 
+  // An image-set resolution descriptor sets the image's density, and density
+  // sets its intrinsic CSS size (pixelWidth / density). A background drawn at
+  // `background-size: auto` therefore renders the picked variant at
+  // pixelWidth / descriptor CSS pixels wide - so descriptors must be relative
+  // to the ORIGINAL image's intrinsic width, or the drawn size changes.
+  // Normalising to a fixed 1024 made salt4life's 389px notched-card shape
+  // (Vector1.png, background-size auto) draw 1024px wide and swallow half the
+  // card. The fixed reference remains only as the fallback for assets whose
+  // intrinsic width was never recorded.
+  const referenceWidth =
+    media.width && media.width > 0 ? media.width : BACKGROUND_IMAGE_SET_REFERENCE_WIDTH
   const seenDescriptors = new Set<string>()
   const options: string[] = []
   for (const variant of variants) {
-    const descriptor = formatResolution(variant.width)
-    if (seenDescriptors.has(descriptor)) continue
+    const descriptor = formatResolution(variant.width, referenceWidth)
+    if (descriptor === '0x' || seenDescriptors.has(descriptor)) continue
     seenDescriptors.add(descriptor)
     options.push(`${cssUrl(variant.path)} ${descriptor}`)
   }

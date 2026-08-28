@@ -196,9 +196,9 @@ describe('bagToCSS', () => {
 
     expect(css).toContain('background-image: url("/uploads/hero-w2048.webp");')
     expect(css).toContain('background-image: image-set(')
-    expect(css).toContain('url("/uploads/hero-w320.webp") 0.31x')
-    expect(css).toContain('url("/uploads/hero-w1024.webp") 1x')
-    expect(css).toContain('url("/uploads/hero-w2048.webp") 2x')
+    expect(css).toContain('url("/uploads/hero-w320.webp") 0.13x')
+    expect(css).toContain('url("/uploads/hero-w1024.webp") 0.43x')
+    expect(css).toContain('url("/uploads/hero-w2048.webp") 0.85x')
     expect(css).not.toContain('/uploads/hero.png')
   })
 

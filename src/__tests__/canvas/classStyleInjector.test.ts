@@ -128,7 +128,7 @@ describe('generateCanvasClassCSS', () => {
 
     expect(css).toContain('background-image: url("/uploads/hero-w2048.webp");')
     expect(css).toContain('background-image: image-set(')
-    expect(css).toContain('url("/uploads/hero-w1024.webp") 1x')
+    expect(css).toContain('url("/uploads/hero-w1024.webp") 0.43x')
     expect(css).not.toContain('/uploads/hero.png')
   })
 
