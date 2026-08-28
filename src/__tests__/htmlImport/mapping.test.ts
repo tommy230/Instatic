@@ -1030,7 +1030,10 @@ describe('HTML attribute preservation — props.htmlAttributes for ordinary base
 
     const children = container.children.map((id) => result.nodes[id]!)
     expect(children[0]!.moduleId).toBe('base.link')
-    expect(children[0]!.props.htmlAttributes).toEqual({ 'data-track': 'jump' })
+    // `rel` is kept, not treated as module-owned: the module only regenerates
+    // the security rel for target="_blank", and themes style semantic rels
+    // (`a[rel="next"]` on rehemahealthfoundation.org's campaign pagination).
+    expect(children[0]!.props.htmlAttributes).toEqual({ 'data-track': 'jump', rel: 'nofollow' })
     expect(children[1]!.moduleId).toBe('base.image')
     // `alt` is kept, not treated as module-owned: the module regenerates it
     // only from a library asset, and an imported image pointing at a remote URL

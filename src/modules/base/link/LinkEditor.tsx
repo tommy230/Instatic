@@ -20,14 +20,22 @@ export const LinkEditor: React.FC<ModuleComponentProps<LinkStoredProps>> = ({ pr
   // Inline editing only starts on a childless link (text mode), so when
   // `inlineEdit` is set the element edits its `text` prop in place.
   const content = linkUsesChildren(childCount) ? children : (props.text ?? 'Link text')
+  // Mirror the publisher's rel merge: authored tokens from the htmlAttributes
+  // bag plus the security rel, emitted once so the canvas cannot drift.
+  const { rel: authoredRel, ...bagWithoutRel } = htmlAttributesForReact(props.htmlAttributes)
+  const relTokens = [
+    ...(authoredRel ?? '').split(/\s+/).filter(Boolean),
+    ...(anchorRel(props.target)?.split(' ') ?? []),
+  ]
+  const mergedRel = [...new Set(relTokens)].join(' ')
   return React.createElement(
     'a',
     {
       ...nodeWrapperProps,
-      ...htmlAttributesForReact(props.htmlAttributes),
+      ...bagWithoutRel,
       href: props.href || '#',
       target: props.target,
-      rel: anchorRel(props.target) ?? undefined,
+      rel: mergedRel || undefined,
       className: mcClassName,
       ...(inlineEdit ? inlineEditableElementProps(inlineEdit) : {}),
     },

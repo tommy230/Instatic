@@ -7,7 +7,7 @@
 import type { ModuleDefinition } from '@core/module-engine'
 import { registry } from '@core/module-engine'
 import { LinkIcon } from 'pixel-art-icons/icons/link'
-import { safeUrl } from '@modules/base/utils/escape'
+import { escapeHtml, safeUrl } from '@modules/base/utils/escape'
 import { Value } from '@core/utils/typeboxHelpers'
 import { ANCHOR_TARGET_OPTIONS, anchorRel } from '@modules/base/shared/anchorTarget'
 import {
@@ -52,9 +52,18 @@ export const LinkModule: ModuleDefinition<LinkStoredProps> = {
 
   render: (props, renderedChildren) => {
     const href = safeUrl(props.href)
-    const attrs = htmlAttributesAttr(props.htmlAttributes)
-    const rel = anchorRel(props.target)
-    const relAttr = rel ? ` rel="${rel}"` : ''
+    // An imported anchor may carry a semantic rel (next/prev, nofollow, …) in
+    // its htmlAttributes bag; themes style against it (`a[rel="next"]`).
+    // Merge those tokens with the security rel and emit exactly one rel
+    // attribute, keeping the bag's copy out of the generic attribute string.
+    const { rel: authoredRel, ...bagWithoutRel } = (props.htmlAttributes ?? {}) as Record<string, unknown>
+    const attrs = htmlAttributesAttr(bagWithoutRel)
+    const relTokens = [
+      ...String(typeof authoredRel === 'string' ? authoredRel : '').split(/\s+/).filter(Boolean),
+      ...(anchorRel(props.target)?.split(' ') ?? []),
+    ]
+    const rel = [...new Set(relTokens)].join(' ')
+    const relAttr = rel ? ` rel="${escapeHtml(rel)}"` : ''
     const targetAttr = ` target="${String(props.target)}"`
     const content = linkUsesChildren(renderedChildren.length)
       ? renderedChildren.join('')

@@ -54,6 +54,25 @@ describe('anchorRel — single source for the noopener rule', () => {
     expect(btnSelf).not.toContain('rel=')
   })
 
+  it('link keeps an authored semantic rel and merges it with the security rel', () => {
+    // rehemahealthfoundation.org: `.post-page-nav a[rel="next"] { color:#fff }` —
+    // the imported anchor's rel arrives via the htmlAttributes bag and must
+    // publish as a single rel attribute.
+    const authored = LinkModule.render(
+      { ...LinkModule.defaults, href: '/campaign/x/', target: '_self', htmlAttributes: { rel: 'next' } },
+      [],
+    ).html
+    expect(authored).toContain('rel="next"')
+    expect(authored.match(/\brel=/g)?.length).toBe(1)
+
+    const merged = LinkModule.render(
+      { ...LinkModule.defaults, href: 'https://e.com', target: '_blank', htmlAttributes: { rel: 'nofollow' } },
+      [],
+    ).html
+    expect(merged).toContain('rel="nofollow noopener noreferrer"')
+    expect(merged.match(/\brel=/g)?.length).toBe(1)
+  })
+
   it('link and button expose the SAME target options from the shared leaf', () => {
     const values = ANCHOR_TARGET_OPTIONS.map((o) => o.value)
     expect(values).toEqual(['_self', '_blank', '_parent'])

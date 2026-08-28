@@ -171,7 +171,13 @@ const MODULE_GENERATED_ATTRIBUTE_NAMES: Record<string, readonly string[]> = {
   // and an imported image pointing at a remote URL has none, so dropping the
   // source's alt here published `alt=""` on every imported image.
   'base.image': ['src', 'style'],
-  'base.link': ['href', 'rel', 'target'],
+  // `rel` is NOT dropped: the module only regenerates the security rel for
+  // target="_blank", so dropping a source-declared semantic rel loses it
+  // outright. rehemahealthfoundation.org styles its campaign pagination with
+  // `.post-page-nav a[rel="next"] { color:#fff }`, and with rel gone the
+  // published Next/Previous fell back to default link blue. The render path
+  // merges the authored tokens with the security rel and emits one attribute.
+  'base.link': ['href', 'target'],
   // `value` becomes the label and `type` is what the module always emits;
   // everything else (id, class, data-*) is the source's own identity.
   'base.submit': ['type', 'value'],
