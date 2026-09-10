@@ -987,6 +987,20 @@ describe('HTML attribute preservation — props.htmlAttributes for ordinary base
     expect(input.props.htmlAttributes).toBeUndefined()
   })
 
+  it('preserves authored checkbox runtime attributes without duplicating module-owned attributes', () => {
+    const result = imported(`
+      <input type="checkbox" id="necessary" name="necessary" value="yes"
+        data-id="checkbox-necessary" aria-label="Necessary cookies" checked>
+    `)
+    const input = result.nodes[result.rootIds[0]!]!
+
+    expect(input.moduleId).toBe('base.checkbox')
+    expect(input.props.htmlAttributes).toEqual({
+      'aria-label': 'Necessary cookies',
+      'data-id': 'checkbox-necessary',
+    })
+  })
+
   it('skips class, module-owned attributes, and reserved editor attributes', () => {
     const result = imported(`
       <div class="kept-as-class" data-bg-src="assets/images/shape/heroShape1_1.png" data-instatic-node="reserved">

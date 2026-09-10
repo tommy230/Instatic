@@ -155,6 +155,14 @@ describe('base form primitive modules', () => {
       disabled: false,
     }, []).html).toBe('<input type="radio" data-instatic-form-control="radio" data-instatic-field-id="plan" name="plan" id="plan-pro" value="pro">')
 
+    const attributedCheckbox = CheckboxModule.render({
+      ...CheckboxModule.defaults,
+      fieldId: 'necessary',
+      htmlAttributes: { 'data-id': 'checkbox-necessary', 'aria-label': 'Necessary cookies' },
+    }, []).html
+    expect(attributedCheckbox).toContain('data-id="checkbox-necessary"')
+    expect(attributedCheckbox).toContain('aria-label="Necessary cookies"')
+
     expect(SubmitModule.render({ label: 'Subscribe', disabled: false, formId: '' }, []).html)
       .toBe('<button type="submit">Subscribe</button>')
 
