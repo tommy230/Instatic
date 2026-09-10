@@ -54,6 +54,14 @@ describe('anchorRel — single source for the noopener rule', () => {
     expect(btnSelf).not.toContain('rel=')
   })
 
+  it('preserves absent link attributes separately from authored empty href', () => {
+    const absent = LinkModule.render({ ...LinkModule.defaults, href: null, target: null }, []).html
+    expect(absent).not.toContain(' href=')
+    expect(absent).not.toContain(' target=')
+
+    const authoredEmpty = LinkModule.render({ ...LinkModule.defaults, href: '', target: null }, []).html
+    expect(authoredEmpty).toContain(' href=""')
+  })
   it('link and button expose the SAME target options from the shared leaf', () => {
     const values = ANCHOR_TARGET_OPTIONS.map((o) => o.value)
     expect(values).toEqual(['_self', '_blank', '_parent'])

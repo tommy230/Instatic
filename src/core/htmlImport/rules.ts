@@ -7,7 +7,7 @@
  *
  * Verified prop names against module source:
  *   base.text    — `text` (string), `tag` (TextTag)
- *   base.link    — `text` (string), `href`, `target`   (NOT `label`)
+ *   base.link    — `text` (string), nullable `href`, nullable `target` (NOT `label`)
  *   base.button  — `label` (string), `href`, `target`, `disabled`
  *   base.image   — `src` only (alt comes from media library, not a prop)
  *   base.container — `tag` (builtin name | 'custom'), `customTag` (free text)
@@ -464,8 +464,13 @@ export const HTML_TO_MODULE_RULES: ImportRule[] = [
       moduleId: 'base.link',
       props: {
         text: normalizeImportedText(el.textContent ?? ''),
-        href: el.getAttribute('href') ?? '',
-        target: el.getAttribute('target') ?? '_self',
+        // Attribute absence is meaningful on script-controlled anchors. An
+        // invented href="" navigates to the current page before a click
+        // handler can finish (for example, a mobile-menu toggle). Keep null
+        // distinct from an explicitly authored empty attribute so render can
+        // reproduce the source element exactly.
+        href: el.getAttribute('href'),
+        target: el.getAttribute('target'),
       },
     }),
     recurse: hasElementChild,

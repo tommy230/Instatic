@@ -25,9 +25,9 @@ export const LinkEditor: React.FC<ModuleComponentProps<LinkStoredProps>> = ({ pr
     {
       ...nodeWrapperProps,
       ...htmlAttributesForReact(props.htmlAttributes),
-      href: props.href || '#',
-      target: props.target,
-      rel: anchorRel(props.target) ?? undefined,
+      href: props.href === null ? undefined : props.href,
+      target: props.target === null ? undefined : props.target,
+      rel: props.target === null ? undefined : (anchorRel(props.target) ?? undefined),
       className: mcClassName,
       ...(inlineEdit ? inlineEditableElementProps(inlineEdit) : {}),
     },
