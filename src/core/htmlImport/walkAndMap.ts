@@ -112,6 +112,12 @@ const HTML_ATTRIBUTE_MODULES = new Set([
   // so those have to survive the rebuild (redrockscafe.com's newsletter button
   // lost `#gform_submit_button_11` / `.gform_button.button` and its styling).
   'base.submit',
+  // Choice controls are rebuilt from module props, but third-party form
+  // runtimes also use authored data/ARIA attributes as their public hook.
+  // Cookie Law Info, for example, reads `data-id` from each preference
+  // checkbox before it can save consent or dismiss its banner.
+  'base.checkbox',
+  'base.radio',
   // Same reason one level up. A theme styles a search or contact form through
   // the form's own id — `.widget #searchform input[type=text]` on
   // employeeassessmentgroup.com — and the id was the one thing an imported
@@ -168,6 +174,28 @@ const MODULE_GENERATED_ATTRIBUTE_NAMES: Record<string, readonly string[]> = {
   // `value` becomes the label and `type` is what the module always emits;
   // everything else (id, class, data-*) is the source's own identity.
   'base.submit': ['type', 'value'],
+  'base.checkbox': [
+    'checked',
+    'data-instatic-field-id',
+    'data-instatic-form-control',
+    'disabled',
+    'id',
+    'name',
+    'required',
+    'type',
+    'value',
+  ],
+  'base.radio': [
+    'checked',
+    'data-instatic-field-id',
+    'data-instatic-form-control',
+    'disabled',
+    'id',
+    'name',
+    'required',
+    'type',
+    'value',
+  ],
 }
 
 /**
