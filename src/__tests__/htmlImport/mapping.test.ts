@@ -202,14 +202,19 @@ describe('base.link — plain <a> elements', () => {
     expect(node.props.target).toBe('_blank')
   })
 
-  it('plain anchor with no target → defaults to "_self"', () => {
+  it('plain anchor with no target preserves attribute absence', () => {
     const node = single('<a href="/about">About</a>')
-    expect(node.props.target).toBe('_self')
+    expect(node.props.target).toBeNull()
   })
 
   it('plain anchor with empty href → href is empty string', () => {
     const node = single('<a href="">Empty</a>')
     expect(node.props.href).toBe('')
+  })
+
+  it('plain anchor without href preserves attribute absence', () => {
+    const node = single('<a data-action="toggle">Menu</a>')
+    expect(node.props.href).toBeNull()
   })
 
   it('<a> without any class (other than btn) → base.link, not base.button', () => {
