@@ -3,9 +3,9 @@ import { AnchorTargetSchema } from '@modules/base/shared/anchorTarget'
 import { HtmlAttributesPropSchemaOptions } from '@modules/base/shared/htmlAttributes'
 
 export const LinkPropsSchema = Type.Object({
-  href: Type.String({ default: '#' }),
+  href: Type.Union([Type.String(), Type.Null()], { default: '#' }),
   text: Type.String({ default: 'Click here' }),
-  target: AnchorTargetSchema,
+  target: Type.Union([AnchorTargetSchema, Type.Null()], { default: '_self' }),
   htmlAttributes: Type.Record(Type.String(), Type.String(), HtmlAttributesPropSchemaOptions),
 })
 
