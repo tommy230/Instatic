@@ -54,6 +54,15 @@ describe('anchorRel — single source for the noopener rule', () => {
     expect(btnSelf).not.toContain('rel=')
   })
 
+  it('preserves absent link attributes separately from authored empty href', () => {
+    const absent = LinkModule.render({ ...LinkModule.defaults, href: null, target: null }, []).html
+    expect(absent).not.toContain(' href=')
+    expect(absent).not.toContain(' target=')
+
+    const authoredEmpty = LinkModule.render({ ...LinkModule.defaults, href: '', target: null }, []).html
+    expect(authoredEmpty).toContain(' href=""')
+  })
+
   it('link keeps an authored semantic rel and merges it with the security rel', () => {
     // rehemahealthfoundation.org: `.post-page-nav a[rel="next"] { color:#fff }` —
     // the imported anchor's rel arrives via the htmlAttributes bag and must

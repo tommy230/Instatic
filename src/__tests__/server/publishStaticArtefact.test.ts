@@ -37,6 +37,7 @@ import { createFakeDb } from './dbTestFake'
 import { makePage, makeSite } from '../publisher/helpers'
 import type { LoopEntitySource } from '../../../src/core/loops/types'
 import { loopSourceRegistry } from '../../../src/core/loops/registry'
+import { PAYLOAD_PUCK_HANDOFF_DIR } from '../../../server/publish/payloadPuckExport'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -326,6 +327,20 @@ describe('publishDraftSite — Layer A static artefacts', () => {
     const result = await publishDraftSite(db, 'user-1', uploadsDir)
 
     expect(result.publishedPages).toBe(2)
+
+    const handoff = JSON.parse(await readFile(
+      join(uploadsDir, PAYLOAD_PUCK_HANDOFF_DIR, 'current.json'),
+      'utf8',
+    ))
+    expect(handoff.status).toBe('current')
+    expect(handoff.pages.map((page: { id: string }) => page.id)).toEqual([
+      'dynamic-page',
+      'static-page',
+    ])
+    expect(await readFile(
+      join(uploadsDir, PAYLOAD_PUCK_HANDOFF_DIR, 'snapshots', `${handoff.snapshotId}.json`),
+      'utf8',
+    )).toBe(`${JSON.stringify(handoff, null, 2)}\n`)
 
     // Static page artefact exists
     const staticHtml = await readArtefact(uploadsDir, '/about')

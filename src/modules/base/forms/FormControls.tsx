@@ -183,6 +183,7 @@ export function OptionGroupEditor({ children, nodeWrapperProps, props }: ModuleC
 export function CheckboxEditor({ mcClassName, nodeWrapperProps, props }: ModuleComponentProps<ChoiceProps>) {
   return (
     <input
+      {...htmlAttributesForReact(props.htmlAttributes)}
       {...nodeWrapperProps}
       className={mcClassName}
       type="checkbox"
@@ -199,6 +200,7 @@ export function CheckboxEditor({ mcClassName, nodeWrapperProps, props }: ModuleC
 export function RadioEditor({ mcClassName, nodeWrapperProps, props }: ModuleComponentProps<ChoiceProps>) {
   return (
     <input
+      {...htmlAttributesForReact(props.htmlAttributes)}
       {...nodeWrapperProps}
       className={mcClassName}
       type="radio"

@@ -152,7 +152,6 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     }
 
     const videoSrc = safeUrl(rawUrl)
-    if (!videoSrc) return { html: `<video${identityAttrs}></video>` }
 
     // Resolved video asset gives us intrinsic dimensions — emits
     // `width` / `height` attrs so the browser reserves layout space
@@ -173,7 +172,8 @@ export const VideoModule: ModuleDefinition<VideoProps> = {
     const preload =
       props.preload === 'none' ? 'none' : props.preload === 'auto' ? 'auto' : 'metadata'
 
-    const attrs: string[] = [`src="${videoSrc}"`]
+    // A theme may assign the source later. Keep playback attributes in that case.
+    const attrs: string[] = videoSrc ? [`src="${videoSrc}"`] : []
     if (posterSrc) attrs.push(`poster="${posterSrc}"`)
     if (width !== null) attrs.push(`width="${width}"`)
     if (height !== null) attrs.push(`height="${height}"`)

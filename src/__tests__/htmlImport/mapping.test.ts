@@ -206,14 +206,19 @@ describe('base.link — plain <a> elements', () => {
     expect(node.props.target).toBe('_blank')
   })
 
-  it('plain anchor with no target → defaults to "_self"', () => {
+  it('plain anchor with no target preserves attribute absence', () => {
     const node = single('<a href="/about">About</a>')
-    expect(node.props.target).toBe('_self')
+    expect(node.props.target).toBeNull()
   })
 
   it('plain anchor with empty href → href is empty string', () => {
     const node = single('<a href="">Empty</a>')
     expect(node.props.href).toBe('')
+  })
+
+  it('plain anchor without href preserves attribute absence', () => {
+    const node = single('<a data-action="toggle">Menu</a>')
+    expect(node.props.href).toBeNull()
   })
 
   it('<a> without any class (other than btn) → base.link, not base.button', () => {
@@ -352,7 +357,7 @@ describe('base form primitives — semantic form elements', () => {
     expect(form.props.formId).toBe('contact')
     expect(form.props.action).toBe('/contact')
     expect(form.props.method).toBe('post')
-    expect(form.children).toHaveLength(4)
+    expect(form.children).toHaveLength(7)
 
     const label = result.nodes[form.children[0]!]!
     expect(label.moduleId).toBe('base.label')
@@ -360,7 +365,7 @@ describe('base form primitives — semantic form elements', () => {
     expect(label.props.targetMode).toBe('explicit')
     expect(label.props.targetId).toBe('email')
 
-    const input = result.nodes[form.children[1]!]!
+    const input = result.nodes[form.children[2]!]!
     expect(input.moduleId).toBe('base.input')
     expect(input.props.inputType).toBe('email')
     expect(input.props.fieldId).toBe('email')
@@ -370,14 +375,14 @@ describe('base form primitives — semantic form elements', () => {
     expect(input.props.required).toBe(true)
     expect(input.props.minLength).toBe(5)
 
-    const textarea = result.nodes[form.children[2]!]!
+    const textarea = result.nodes[form.children[4]!]!
     expect(textarea.moduleId).toBe('base.textarea')
     expect(textarea.props.fieldId).toBe('message')
     expect(textarea.props.value).toBe('Hello')
     expect(textarea.props.required).toBe(true)
     expect(textarea.props.maxLength).toBe(500)
 
-    const submit = result.nodes[form.children[3]!]!
+    const submit = result.nodes[form.children[6]!]!
     expect(submit.moduleId).toBe('base.submit')
     expect(submit.props.label).toBe('Send')
   })
@@ -399,7 +404,7 @@ describe('base form primitives — semantic form elements', () => {
     const form = result.nodes[result.rootIds[0]!]!
     expect(form.moduleId).toBe('base.form')
     expect(form.props.formId).toBe('signup')
-    expect(form.children).toHaveLength(4)
+    expect(form.children).toHaveLength(7)
 
     const checkbox = result.nodes[form.children[0]!]!
     expect(checkbox.moduleId).toBe('base.checkbox')
@@ -408,13 +413,13 @@ describe('base form primitives — semantic form elements', () => {
     expect(checkbox.props.checked).toBe(true)
     expect(checkbox.props.required).toBe(true)
 
-    const radio = result.nodes[form.children[1]!]!
+    const radio = result.nodes[form.children[2]!]!
     expect(radio.moduleId).toBe('base.radio')
     expect(radio.props.fieldId).toBe('plan')
     expect(radio.props.value).toBe('pro')
     expect(radio.props.checked).toBe(true)
 
-    const select = result.nodes[form.children[2]!]!
+    const select = result.nodes[form.children[4]!]!
     expect(select.moduleId).toBe('base.select')
     expect(select.props.fieldId).toBe('country')
     expect(select.props.required).toBe(true)
@@ -430,7 +435,7 @@ describe('base form primitives — semantic form elements', () => {
     expect(option.props.label).toBe('Czechia')
     expect(option.props.selected).toBe(true)
 
-    const submit = result.nodes[form.children[3]!]!
+    const submit = result.nodes[form.children[6]!]!
     expect(submit.moduleId).toBe('base.submit')
     expect(submit.props.label).toBe('Join')
   })
@@ -980,7 +985,9 @@ describe('HTML attribute preservation — props.htmlAttributes for ordinary base
     expect(container.moduleId).toBe('base.container')
     expect(container.props.htmlAttributes).toEqual({ id: 'preloader', role: 'region' })
 
+    // Bare whitespace nodes separate the authored elements.
     const children = container.children.map((id) => result.nodes[id]!)
+      .filter((node) => node.props.tag !== 'none')
     expect(children[0]!.moduleId).toBe('base.text')
     expect(children[0]!.props.htmlAttributes).toEqual({
       'aria-label': 'Intro',
@@ -1028,7 +1035,9 @@ describe('HTML attribute preservation — props.htmlAttributes for ordinary base
       'data-bg-src': 'assets/images/shape/heroShape1_1.png',
     })
 
+    // Bare whitespace nodes separate the authored elements.
     const children = container.children.map((id) => result.nodes[id]!)
+      .filter((node) => node.props.tag !== 'none')
     expect(children[0]!.moduleId).toBe('base.link')
     // `rel` is kept, not treated as module-owned: the module only regenerates
     // the security rel for target="_blank", and themes style semantic rels
@@ -1063,10 +1072,10 @@ describe('nested structure — parent/child IDs in document order', () => {
 
     expect(sectionNode.moduleId).toBe('base.container')
     expect(sectionNode.props.tag).toBe('section')
-    expect(sectionNode.children).toHaveLength(3)
+    expect(sectionNode.children).toHaveLength(5)
 
     // Children in document order: h1, p, a.btn
-    const [h1Id, pId, btnId] = sectionNode.children
+    const [h1Id, , pId, , btnId] = sectionNode.children
     expect(result.nodes[h1Id!]!.moduleId).toBe('base.text')
     expect(result.nodes[h1Id!]!.props.tag).toBe('h1')
 
@@ -1226,7 +1235,7 @@ describe('direct text in containers → synthesized no-wrapper base.text', () =>
     expect(third.props.text).toBe('chatbots')
   })
 
-  it('whitespace-only text between elements is ignored (no spurious text nodes)', () => {
+  it('collapses interior indentation to a space and trims parent-edge indentation', () => {
     const result = imported(`
       <div>
         <span>A</span>
@@ -1234,11 +1243,9 @@ describe('direct text in containers → synthesized no-wrapper base.text', () =>
       </div>
     `)
     const divNode = result.nodes[result.rootIds[0]!]!
-    // Only the two <span> elements — the indentation whitespace is dropped.
-    expect(divNode.children).toHaveLength(2)
-    for (const id of divNode.children) {
-      expect(result.nodes[id]!.moduleId).toBe('base.text')
-    }
+    const children = divNode.children.map((id) => result.nodes[id]!)
+    expect(children.map((node) => node.props.text)).toEqual(['A', ' ', 'B'])
+    expect(children[1]!.props.tag).toBe('none')
   })
 
   it('internal whitespace runs collapse to single spaces', () => {

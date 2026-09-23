@@ -161,6 +161,7 @@ const ChoicePropsSchema = Type.Object({
   checked: Type.Boolean({ default: false }),
   required: Type.Boolean({ default: false }),
   disabled: Type.Boolean({ default: false }),
+  htmlAttributes: Type.Record(Type.String(), Type.String(), HtmlAttributesPropSchemaOptions),
 })
 
 type ChoiceProps = Static<typeof ChoicePropsSchema>
@@ -551,7 +552,7 @@ function choiceModule(args: {
     name: args.name,
     description: `A ${args.inputType} form control.`,
     category: 'Forms',
-    version: '1.0.0',
+    version: '1.1.0',
     icon: CheckboxSolidIcon,
     trusted: true,
     canHaveChildren: false,
@@ -563,13 +564,14 @@ function choiceModule(args: {
       checked: { type: 'toggle', label: 'Checked' },
       required: { type: 'toggle', label: 'Required' },
       disabled: { type: 'toggle', label: 'Disabled' },
+      htmlAttributes: htmlAttributesControl(),
     },
     propsSchema: ChoicePropsSchema,
     defaults: Value.Create(ChoicePropsSchema),
     component: args.component,
     htmlTag: 'input',
     render: (props) => ({
-      html: `<input type="${args.inputType}"${attrs([
+      html: `<input${htmlAttributesAttr(props.htmlAttributes)} type="${args.inputType}"${attrs([
         ['data-instatic-form-control', args.inputType],
         ['data-instatic-field-id', props.fieldId],
         ['name', props.name || props.fieldId],

@@ -28,6 +28,7 @@ import { Type, type Static } from '@core/utils/typeboxHelpers'
 import { compiledCheck } from '@core/utils/typeboxCompiler'
 import { FrameworkSettingsSchema } from '@core/framework-schema'
 import { SiteFontsSettingsSchema, parseSiteFontsSettings } from '@core/fonts'
+import { MigrationNotesSchema, parseMigrationNotes } from './migrationNote'
 
 // ---------------------------------------------------------------------------
 // SiteCspSettingsSchema — per-site Content-Security-Policy escape hatch
@@ -117,6 +118,8 @@ export const SiteSettingsSchema = Type.Object({
   extraHeadLinks: Type.Optional(Type.Array(ExtraHeadLinkSchema)),
   /** Publisher switches — absent when every default applies. */
   publish: Type.Optional(SitePublishSettingsSchema),
+  /** Structured source-fidelity gaps carried into downstream migrations. */
+  migrationNotes: Type.Optional(MigrationNotesSchema),
   /** Keyboard shortcut overrides — defaults to {} — handled in parseSiteSettings. */
   shortcuts: Type.Record(Type.String(), Type.String()),
 })
@@ -166,6 +169,7 @@ export function parseSiteSettings(raw: unknown): SiteSettings {
   const extraHeadLinks = parseExtraHeadLinks(r.extraHeadLinks)
 
   const publish = parseSitePublishSettings(r.publish)
+  const migrationNotes = parseMigrationNotes(r.migrationNotes)
 
   return {
     ...(typeof r.metaTitle === 'string' ? { metaTitle: r.metaTitle } : {}),
@@ -177,6 +181,7 @@ export function parseSiteSettings(raw: unknown): SiteSettings {
     ...(contentSecurityPolicy ? { contentSecurityPolicy } : {}),
     ...(extraHeadLinks ? { extraHeadLinks } : {}),
     ...(publish ? { publish } : {}),
+    ...(migrationNotes ? { migrationNotes } : {}),
     shortcuts,
   }
 }

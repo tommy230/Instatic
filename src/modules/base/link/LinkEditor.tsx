@@ -25,7 +25,7 @@ export const LinkEditor: React.FC<ModuleComponentProps<LinkStoredProps>> = ({ pr
   const { rel: authoredRel, ...bagWithoutRel } = htmlAttributesForReact(props.htmlAttributes)
   const relTokens = [
     ...(authoredRel ?? '').split(/\s+/).filter(Boolean),
-    ...(anchorRel(props.target)?.split(' ') ?? []),
+    ...(props.target === null ? [] : (anchorRel(props.target)?.split(' ') ?? [])),
   ]
   const mergedRel = [...new Set(relTokens)].join(' ')
   return React.createElement(
@@ -33,8 +33,8 @@ export const LinkEditor: React.FC<ModuleComponentProps<LinkStoredProps>> = ({ pr
     {
       ...nodeWrapperProps,
       ...bagWithoutRel,
-      href: props.href || '#',
-      target: props.target,
+      href: props.href === null ? undefined : props.href,
+      target: props.target === null ? undefined : props.target,
       rel: mergedRel || undefined,
       className: mcClassName,
       ...(inlineEdit ? inlineEditableElementProps(inlineEdit) : {}),

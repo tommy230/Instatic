@@ -36,6 +36,16 @@ export {
 } from './cssSelectorClasses'
 export type { CssSelectorClassToken } from './cssSelectorClasses'
 export { SiteShellSchema } from './siteDocument'
+export {
+  MigrationGapStatusSchema,
+  MigrationGapTypeSchema,
+  MigrationNoteSchema,
+  MigrationNotesSchema,
+  MigrationPrerequisiteKindSchema,
+  assertMigrationNotes,
+  isMigrationNote,
+  parseMigrationNotes,
+} from './migrationNote'
 export {   parsePageTemplate } from './pageTemplate'
 
 // Types — derived from schemas. Schemas are the source of truth.
@@ -54,6 +64,7 @@ export type {
 } from './styleRule'
 export type { Condition, ConditionDef } from './condition'
 export type { SiteSettings, SiteCspSettings, SitePublishSettings, ExtraHeadLink } from './siteSettings'
+export type { MigrationNote } from './migrationNote'
 export type { SiteShell, SiteDocument } from './siteDocument'
 export type {
   DecorativeSiteExplorerSectionId,

@@ -51,7 +51,7 @@ export const LinkModule: ModuleDefinition<LinkStoredProps> = {
   htmlTag: 'a',
 
   render: (props, renderedChildren) => {
-    const href = safeUrl(props.href)
+    const hrefAttr = props.href === null ? '' : ` href="${safeUrl(props.href)}"`
     // An imported anchor may carry a semantic rel (next/prev, nofollow, …) in
     // its htmlAttributes bag; themes style against it (`a[rel="next"]`).
     // Merge those tokens with the security rel and emit exactly one rel
@@ -60,16 +60,16 @@ export const LinkModule: ModuleDefinition<LinkStoredProps> = {
     const attrs = htmlAttributesAttr(bagWithoutRel)
     const relTokens = [
       ...String(typeof authoredRel === 'string' ? authoredRel : '').split(/\s+/).filter(Boolean),
-      ...(anchorRel(props.target)?.split(' ') ?? []),
+      ...(props.target === null ? [] : (anchorRel(props.target)?.split(' ') ?? [])),
     ]
     const rel = [...new Set(relTokens)].join(' ')
     const relAttr = rel ? ` rel="${escapeHtml(rel)}"` : ''
-    const targetAttr = ` target="${String(props.target)}"`
+    const targetAttr = props.target === null ? '' : ` target="${String(props.target)}"`
     const content = linkUsesChildren(renderedChildren.length)
       ? renderedChildren.join('')
       : String(props.text ?? '')
     return {
-      html: `<a${attrs} href="${href}"${targetAttr}${relAttr}>${content}</a>`,
+      html: `<a${attrs}${hrefAttr}${targetAttr}${relAttr}>${content}</a>`,
     }
   },
 }

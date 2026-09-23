@@ -17,6 +17,7 @@ The published output has **no framework runtime**, **no client-side hydration of
 - Every node's props pass through `escapeProps` before `render()` (Constraint #211).
 - Server-side wrappers (`server/publish/publicRouter.ts` → `publicRenderer.ts` → `publishedHtmlPipeline.ts`) call `publishPage`, run plugin filters, and return the HTML in the visitor response.
 - Output is routed through a three-layer publishing pipeline: **Layer A** bakes pages to `uploads/published/current/<route>.html` at publish time (complete documents for fully-static pages, static shells with holes for dynamic pages, atomic two-slot symlink swap). **Layer B** memoises dynamic page renders in an in-memory LRU keyed by `(urlPath, canonicalQuery)` with per-entry version tracking; `canonicalQuery` is the output of `canonicalRenderQuery()` (in `loopPrefetch.ts`), which keeps only `loop_<nodeId>_page` pagination params — arbitrary junk params collapse to `''` so they never mint new cache slots; `bumpPublishVersion()` evicts lazily and version capture at render start discards results from mid-flight publishes. **Layer C** emits `<instatic-hole>` placeholders for nodes auto-classified as request-dependent; a ~1.1 KB `IntersectionObserver` runtime lazy-loads each fragment via `/_instatic/hole/<nodeId>?v=<publishVersion>&u=<page-url>`.
+- Every full publish regenerates the Payload-Puck handoff at `uploads/payload-puck-handoff/current.json`. Immutable copies live under `snapshots/<siteSnapshotId>.json`.
 - Auto-classification lives in `src/core/publisher/dynamicDetection.ts:findDynamicNodeIds` — one walker, four detection rules plus a loop body promotion step (Rule 3.5), used by `render.ts`'s empty-set static check (Layer A) and `renderNode`'s placeholder emission (Layer C). Authors don't toggle anything.
 
 ---
@@ -46,6 +47,7 @@ src/core/publisher/
 server/publish/
 ├── publicRouter.ts                 — gateway: Layer A disk fast-path → Layer B LRU → live resolver
 ├── staticArtefact.ts               — two-slot symlink swap + read/write/purge artefacts (Layer A); all URL-derived paths are validated by `resolveArtefactPath` (URL-decode + `..`-rejection + containment check after `path.join`)
+├── payloadPuckExport.ts             : complete versioned Payload-Puck handoff + atomic current/stale file
 ├── renderCache.ts                  — in-memory LRU (Layer B); reads publishVersion from publishState
 ├── publishState.ts                 — publishVersion (bump/get) + withPublishLock + createVersionedSingleFlight
 ├── holeRuntime.ts                  — Layer C client runtime; exports runInstaticHoleRuntime (TS source) + HOLE_RUNTIME_JS (IIFE-serialized, ~1.1 KB)
@@ -327,6 +329,37 @@ The exclusive namespaces `/_instatic/css/*` (`serveSiteCss`) and `/_instatic/ass
 publish whose disk write failed. Unknown paths under either prefix 404 rather
 than falling through.
 
+### Payload-Puck handoff
+
+`server/publish/payloadPuckExport.ts` builds one complete handoff from the same
+`SiteDocument` committed to `site_snapshots`. It runs only during full publish,
+never during collaborative draft persistence.
+
+Handoff schema v2 includes `schemaVersion`, `snapshotId`, `contentHash`,
+`siteContentHash`, `generatedAt`, every top-level `SiteDocument` field, and a
+media manifest. Local originals, variants, and posters carry SHA-256 hashes and
+storage-relative paths. Externally hosted files keep their public URL and use a
+null byte hash because Instatic does not own those bytes.
+
+`migrationNotes` promotes validated `site.settings.migrationNotes` to the
+handoff top level. Each inert data record identifies a route and stable node ID
+or semantic fallback, gap type/status, source and asset URLs, prerequisites,
+recommended Payload-Puck implementation, evidence, and validation timestamp.
+This carries intentionally missing maps, forms, embeds, gated scripts, and
+unsupported widgets into downstream review instead of losing them as prose.
+
+Each publish writes
+`uploads/payload-puck-handoff/snapshots/<siteSnapshotId>.json`, then replaces
+`uploads/payload-puck-handoff/current.json` with a temp-file rename. Site fields
+remain top-level, so Payload packet readers that expect `pages`, `styleRules`,
+and `settings` can consume `current.json` as their staging document.
+
+If activation fails after the DB snapshot commits, the writer atomically
+replaces `current.json` with `{ status: "stale", ... }` and throws
+`PayloadPuckExportError`. `server/handlers/cms/publish.ts` returns HTTP 503 with
+a retry-publish instruction. A stale file has no `pages` array, so existing
+Payload packet validation rejects it instead of importing an older snapshot.
+
 ---
 
 ## `<head>` assembly
@@ -376,6 +409,7 @@ Because `serializeCsp` sorts, the same plugins + adapters always emit a **byte-i
 |-------------------------------------------------|---------------------------------------------------------------------|
 | `server/publish/publicRouter.ts`                | Gateway: Layer A disk fast-path → Layer B LRU → live `resolvePublicRoute` + `renderPublicResolution`. |
 | `server/publish/staticArtefact.ts`              | Two-slot symlink swap (`swapSlot`), per-file atomic writes (`writeArtefact`, `updateArtefactInPlace`), and reads (`readArtefact`). Layer A. |
+| `server/publish/payloadPuckExport.ts`           | Builds the complete SiteDocument plus media-hash manifest, writes immutable versioned snapshots, and atomically replaces `current.json` or its stale marker. |
 | `server/publish/renderCache.ts`                 | In-memory LRU keyed by `(urlPath, canonicalQuery)`, entries versioned. `getOrRender` (single-flight). Reads the version from `publishState`; version captured at render start — a publish landing mid-render discards the result rather than caching stale HTML. Layer B. |
 | `server/publish/publishState.ts`                | Publish-time process state: `publishVersion` (`bumpPublishVersion`/`getPublishVersion`), `withPublishLock` (ISS-038 publish serializer), and `createVersionedSingleFlight` — the generalized version-keyed single-flight memo the hole endpoint reuses. Repositories import the version + lock from here (not from the cache). |
 | `server/publish/holeRuntime.ts`                 | Exports `runInstaticHoleRuntime` (the TypeScript source of the Layer C runtime) and `HOLE_RUNTIME_JS` (IIFE-serialized string, ~1.1 KB, served to browsers). Tests call `runInstaticHoleRuntime()` directly to avoid dynamic eval. |
@@ -440,6 +474,9 @@ publishDraftSite (server/publish/publishSite.ts)
     │     data_row_versions row references it via site_snapshot_id + carries
     │     its runtime_assets_json
     ├─→ flip data_rows.status = 'published', set active_version_id
+    ├─→ activate Payload-Puck handoff:
+    │     snapshots/<siteSnapshotId>.json → atomic current.json replacement
+    │     (failure writes a stale marker and returns HTTP 503)
     │
     ├─→ Layer A bake — the 404 page (when a notFound template exists):
     │     renderPublishedNotFound (notFound template wrapped in the everywhere
@@ -583,6 +620,7 @@ This is rare and requires architectural review — most "new behavior" fits with
   - `server/publish/publishedHtmlPipeline.ts` — plugin filter point
   - `server/publish/publicRenderer.ts` — server wrappers
   - `server/publish/renderTreeWalk.ts` — `walkRenderTree` (shared render-tree visitor)
+  - `server/publish/payloadPuckExport.ts` — Payload-Puck handoff schema and atomic activation
 - Gate tests:
   - `src/__tests__/architecture/dispatcher-html-pipeline.test.ts`
   - `src/__tests__/architecture/publish-html-filter-context.test.ts`
@@ -593,3 +631,4 @@ This is rare and requires architectural review — most "new behavior" fits with
   - `src/__tests__/server/dynamicDetectionLoop.test.ts` — Rule 3.5 static loop body promotion
   - `src/__tests__/server/dynamicIslandsPlugin.test.ts` — end-to-end confirmation of plugin loop sources as Layer C holes: protocol schema accepts `requestDependent`/`perVisitor`; dynamic detection classifies them under Rule 3; shared holes cache per query; per-visitor holes bypass the cache (`no-store`) and re-render every request; the versioned snapshot memo loads from DB once per publish version
   - `src/__tests__/server/siteCssBundleMemo.test.ts` — `buildPublishedSiteCssBundle` memo: the O(all-pages) walk runs once per publish snapshot, `bumpPublishVersion()` invalidates the memo, memoized output is byte-identical to the un-memoized builder, and `userStyles` is never memoized (page-scoped)
+  - `src/__tests__/server/payloadPuckExport.test.ts` — page add/edit/delete regeneration, atomic replacement, stale failure state, media hashes, and Payload packet compatibility

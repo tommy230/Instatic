@@ -53,6 +53,10 @@ import { buildPublishedSiteCssBundle } from './siteCssBundle'
 import { bakePublishedDataRowArtefacts } from './bakeDataRows'
 import { bumpPublishVersion, getPublishVersion, withPublishLock } from './publishState'
 import { runPublishFlush } from './publishFlush'
+import {
+  activatePayloadPuckHandoff,
+  preparePayloadPuckHandoff,
+} from './payloadPuckExport'
 
 interface PublishResult {
   publishedPages: number
@@ -135,6 +139,9 @@ async function publishDraftSiteLocked(
   }
 
   const siteSnapshotId = nanoid()
+  const payloadPuckHandoff = uploadsDir
+    ? await preparePayloadPuckHandoff(db, uploadsDir, siteSnapshotId, publishedSite)
+    : null
   const snapshots: PublishedPageSnapshot[] = []
   // Runtime JS bytes for every page, collected for the Layer A disk write so
   // published pages serve their scripts straight off disk (not the DB).
@@ -186,6 +193,10 @@ async function publishDraftSiteLocked(
     pages: pageWrites,
     publishedByUserId: adminUserId,
   })
+
+  if (uploadsDir && payloadPuckHandoff) {
+    await activatePayloadPuckHandoff(uploadsDir, payloadPuckHandoff)
+  }
 
   const publishedPages = publishedSite.pages.length
 

@@ -21,12 +21,12 @@
  *   getLatestPublishedSiteSnapshot — first published page snapshot (for 404s etc.)
  *   getDraftPublishStatus     — compare draft vs published state for the UI
  */
-import { createHash } from 'node:crypto'
 import type { DataRow } from '@core/data/schemas'
 import type { SiteDocument } from '@core/page-tree'
 import type { PublishedPageRuntimeAssets } from '@core/site-runtime'
 import type { PublishedRuntimePackageImportmap } from '@core/publisher'
 import type { DbClient } from '../db/client'
+import { canonicalContentHash } from '../util/contentHash'
 import type { BuiltRuntimeAssetFile } from '../publish/runtime/bundleScripts'
 import { getDraftSite } from './site'
 import { listDataRows } from './data'
@@ -101,19 +101,6 @@ export interface PersistSitePublishInput {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(',')}]`
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    return `{${Object.keys(record).sort().map((key) =>
-      `${JSON.stringify(key)}:${canonicalJson(record[key])}`
-    ).join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
 /**
  * Canonical content hash of a site document, stamped on `site_snapshots` at
  * publish time. The publish-status check compares the draft's hash against
@@ -121,7 +108,7 @@ function canonicalJson(value: unknown): string {
  * strings, without fetching or parsing any stored snapshot.
  */
 function siteContentHash(site: SiteDocument): string {
-  return createHash('sha256').update(canonicalJson(site)).digest('hex')
+  return canonicalContentHash(site)
 }
 
 /**

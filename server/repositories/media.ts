@@ -445,12 +445,16 @@ export async function countMediaAssetsForExport(db: DbClient): Promise<number> {
   return Number(rows[0]?.n ?? 0)
 }
 
+/**
+ * Full active-media inventory for durable export jobs. Public read paths omit
+ * original storage handles, but export writers need them to read local bytes.
+ */
 export async function listMediaAssetsForExport(db: DbClient): Promise<Array<MediaAsset & { storagePath: string }>> {
   const { rows } = await db.unsafe<MediaAssetExportRow>(
     `select ${MEDIA_ASSET_COLUMNS}, storage_path
      from media_assets
      where deleted_at is null
-     order by created_at asc`,
+     order by created_at asc, id asc`,
   )
   const folderMap = await loadFolderIdsForAssets(db, rows.map((r) => r.id))
   return rows.map((row) => ({
